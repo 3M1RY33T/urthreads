@@ -7,7 +7,7 @@ Comments are stored with a `status` field that controls visibility:
 - `approved`: Visible to public
 - `rejected`: Rejected and hidden
 
-This guide shows how to manage comments using Wrangler CLI and D1.
+This guide shows how to manage comments using the `cflc` CLI, Wrangler CLI, and D1.
 
 ## CLI Tool (Recommended)
 
@@ -15,22 +15,22 @@ Use the included CLI tool for easy comment management:
 
 ```bash
 # List all pending comments
-D1_DATABASE_NAME=likes-and-comments node src/cli.js pending
+D1_DATABASE_NAME=likes-and-comments cflc pending
 
 # Approve comment #5
-D1_DATABASE_NAME=likes-and-comments node src/cli.js approve 5
+D1_DATABASE_NAME=likes-and-comments cflc approve 5
 
 # Reject comment #3
-D1_DATABASE_NAME=likes-and-comments node src/cli.js reject 3
+D1_DATABASE_NAME=likes-and-comments cflc reject 3
 
 # List all approved comments for a post
-D1_DATABASE_NAME=likes-and-comments node src/cli.js list-approved /blog/my-post
+D1_DATABASE_NAME=likes-and-comments cflc list-approved /blog/my-post
 
 # Show database statistics
-D1_DATABASE_NAME=likes-and-comments node src/cli.js stats
+D1_DATABASE_NAME=likes-and-comments cflc stats
 
 # Run a database health check
-D1_DATABASE_NAME=likes-and-comments node src/cli.js health
+D1_DATABASE_NAME=likes-and-comments cflc health
 ```
 
 Or set the environment variable permanently:
@@ -39,10 +39,49 @@ Or set the environment variable permanently:
 export D1_DATABASE_NAME=likes-and-comments
 
 # Now use without the prefix:
-node src/cli.js pending
-node src/cli.js approve 5
-node src/cli.js reject 3
+cflc pending
+cflc approve 5
+cflc reject 3
 ```
+
+## README Comment Sync
+
+GitHub README Markdown does not run custom JavaScript, so the interactive comment form should live on a hosted page such as `examples/readme/likes-comments-template.html`. To show approved comments inside the README itself, use the sync script to rewrite a managed Markdown block.
+
+Add this block to your profile `README.md`:
+
+```markdown
+## Profile Comments
+
+<!-- comments:start -->
+_No approved comments yet._
+<!-- comments:end -->
+```
+
+Run the sync locally:
+
+```bash
+COMMENTS_ENDPOINT=https://your-worker.workers.dev/comments \
+README_COMMENTS_PAGE_ID=/ \
+npm run sync:readme-comments
+```
+
+Supported environment variables:
+
+- `COMMENTS_ENDPOINT` or `README_COMMENTS_ENDPOINT`: Worker `/comments` endpoint
+- `README_COMMENTS_PAGE_ID`: comment path to fetch, defaults to `/`
+- `README_COMMENTS_FILE`: README file to update, defaults to `README.md`
+- `README_COMMENTS_LIMIT`: max comments to render, defaults to `10`
+- `README_COMMENTS_SOURCE_URL`: optional "Leave a comment" link
+- `README_COMMENTS_START_MARKER` / `README_COMMENTS_END_MARKER`: custom block markers
+
+The included `.github/workflows/sync-readme-comments.yml` runs on a schedule and by manual dispatch. In your GitHub repository settings, add:
+
+- Secret `COMMENTS_ENDPOINT`: `https://your-worker.workers.dev/comments`
+- Variable `README_COMMENTS_PAGE_ID`: `/`
+- Variable `README_COMMENTS_SOURCE_URL`: your hosted comment page URL
+
+The workflow commits `README.md` only when approved comments change.
 
 ## Manual D1 Commands
 

@@ -33,6 +33,20 @@ wrangler d1 execute likes-and-comments --remote --file=src/schema.sql
 
 ### 4. Configure Worker
 
+Create your local `.env` file with the guided setup:
+
+```bash
+npm run setup:env
+```
+
+If you installed the package globally, use:
+
+```bash
+cflc setup-env
+```
+
+The setup command walks through Cloudflare account details, D1 database values, Worker URLs, CORS origins, and client endpoint URLs. It writes `.env`, which is ignored by Git.
+
 Copy and configure the Wrangler config:
 
 ```bash
@@ -107,10 +121,22 @@ Then add to your HTML elements:
 
 ### Configure Environment
 
-Create `.env` file:
+Create `.env` with the guided CLI:
 
 ```bash
-cp config/.env.example .env
+npm run setup:env
+```
+
+Or, after installing the package globally:
+
+```bash
+cflc setup-env
+```
+
+Or copy the template manually:
+
+```bash
+cp .env.example .env
 ```
 
 Edit `.env`:
@@ -119,6 +145,9 @@ Edit `.env`:
 CLOUDFLARE_ACCOUNT_ID=your_account_id
 CLOUDFLARE_API_TOKEN=your_api_token
 D1_DATABASE_NAME=likes-and-comments
+D1_DATABASE_ID=your_database_id
+WORKER_NAME=likes-and-comments-worker
+WORKER_URL=https://likes-and-comments-worker.<subdomain>.workers.dev
 ALLOWED_ORIGINS=https://mysite.com,https://www.mysite.com
 LIKES_ENDPOINT=https://likes-and-comments-worker.<subdomain>.workers.dev/likes
 COMMENTS_ENDPOINT=https://likes-and-comments-worker.<subdomain>.workers.dev/comments

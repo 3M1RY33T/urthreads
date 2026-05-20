@@ -1,0 +1,46 @@
+name: Sync README comments
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sync approved comments
+        env:
+          COMMENTS_ENDPOINT: ${{ secrets.COMMENTS_ENDPOINT }}
+          README_COMMENTS_PAGE_ID: ${{ vars.README_COMMENTS_PAGE_ID || '/' }}
+          README_COMMENTS_FILE: ${{ vars.README_COMMENTS_FILE || 'README.md' }}
+          README_COMMENTS_SOURCE_URL: ${{ vars.README_COMMENTS_SOURCE_URL }}
+          README_COMMENTS_LIMIT: ${{ vars.README_COMMENTS_LIMIT || '10' }}
+        run: npm run sync:readme-comments
+
+      - name: Commit README update
+        env:
+          README_COMMENTS_FILE: ${{ vars.README_COMMENTS_FILE || 'README.md' }}
+        run: |
+          if git diff --quiet -- "$README_COMMENTS_FILE"; then
+            echo "$README_COMMENTS_FILE is already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$README_COMMENTS_FILE"
+          git commit -m "docs: sync README comments"
+          git push

@@ -37,8 +37,8 @@ function error(message) {
 /**
  * Parse command line arguments
  */
-function parseArgs() {
-  const args = process.argv.slice(2);
+function parseArgs(argv = process.argv.slice(2)) {
+  const args = argv;
   return {
     command: args[0],
     params: args.slice(1),
@@ -144,12 +144,12 @@ function getSqlHealthCheck() {
 /**
  * Display help message
  */
-function showHelp() {
+function showHelp(commandName = "node src/cli.js") {
   log(`
 Cloudflare Likes & Comments CLI - Comment Management Tool
 
 USAGE:
-  node cli.js <command> [params]
+  ${commandName} <command> [params]
 
 COMMANDS:
   pending              List all pending comments
@@ -162,16 +162,16 @@ COMMANDS:
 
 EXAMPLES:
   # List pending comments
-  node cli.js pending
+  ${commandName} pending
 
   # Approve comment with ID 5
-  node cli.js approve 5
+  ${commandName} approve 5
 
   # List approved comments for a post
-  node cli.js list-approved /blog/my-post
+  ${commandName} list-approved /blog/my-post
 
   # Show database statistics
-  node cli.js stats
+  ${commandName} stats
 
 PREREQUISITES:
   - Cloudflare CLI (wrangler) must be installed and configured
@@ -190,18 +190,19 @@ DATABASE COMMANDS (Advanced):
   wrangler d1 execute <db-name> --remote --command "SELECT * FROM post_comments WHERE status = 'pending'"
 
   # Health check
-  node cli.js health
+  ${commandName} health
   `, "cyan");
 }
 
 /**
  * Main CLI handler
  */
-async function main() {
-  const { command, params } = parseArgs();
+async function main(argv = process.argv.slice(2), options = {}) {
+  const commandName = options.commandName || "node src/cli.js";
+  const { command, params } = parseArgs(argv);
 
   if (!command || command === "help") {
-    showHelp();
+    showHelp(commandName);
     return;
   }
 
@@ -211,7 +212,7 @@ async function main() {
   if (!dbName) {
     log("\n⚠️  D1_DATABASE_NAME environment variable not set", "yellow");
     log("Set it with: export D1_DATABASE_NAME=your-db-name", "yellow");
-    log("Or pass it in: D1_DATABASE_NAME=your-db-name node cli.js pending\n", "yellow");
+    log(`Or pass it in: D1_DATABASE_NAME=your-db-name ${commandName} pending\n`, "yellow");
     error("Database name is required");
   }
 
@@ -226,7 +227,7 @@ async function main() {
 
     case "approve":
       if (!params[0] || isNaN(params[0])) {
-        error("Comment ID required: node cli.js approve <id>");
+        error(`Comment ID required: ${commandName} approve <id>`);
       }
       sqlQuery = getSqlApproveComment(params[0]);
       description = `Approving comment #${params[0]}...`;
@@ -234,7 +235,7 @@ async function main() {
 
     case "reject":
       if (!params[0] || isNaN(params[0])) {
-        error("Comment ID required: node cli.js reject <id>");
+        error(`Comment ID required: ${commandName} reject <id>`);
       }
       sqlQuery = getSqlRejectComment(params[0]);
       description = `Rejecting comment #${params[0]}...`;
@@ -242,7 +243,7 @@ async function main() {
 
     case "list-approved":
       if (!params[0]) {
-        error("Post path required: node cli.js list-approved <path>");
+        error(`Post path required: ${commandName} list-approved <path>`);
       }
       sqlQuery = getSqlApprovedForPath(params[0]);
       description = `Listing approved comments for ${params[0]}...`;
@@ -259,7 +260,7 @@ async function main() {
       break;
 
     default:
-      error(`Unknown command: ${command}\nRun 'node cli.js help' for usage`);
+      error(`Unknown command: ${command}\nRun '${commandName} help' for usage`);
   }
 
   log("\n" + description, "blue");
@@ -286,10 +287,13 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch(error);
+  main(process.argv.slice(2), { commandName: "node src/cli.js" }).catch(error);
 }
 
 module.exports = {
+  main,
+  parseArgs,
+  showHelp,
   generateWranglerCommand,
   getSqlPendingComments,
   getSqlApproveComment,

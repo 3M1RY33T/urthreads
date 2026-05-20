@@ -22,8 +22,9 @@ A lightweight, open-source engagement system for static websites. Add likes and 
 
 1. Create your Cloudflare D1 database.
 2. Initialize the database schema from `src/schema.sql`.
-3. Copy `config/wrangler.toml.example` to `wrangler.toml`, configure your account and D1 bindings, then deploy.
-4. Add the client scripts to your site and set `window.LIKES_CONFIG` / `window.COMMENTS_CONFIG`.
+3. Run `npm run setup:env` locally, or `cflc setup-env` after installing the package, to create a local `.env` file.
+4. Copy `config/wrangler.toml.example` to `wrangler.toml`, configure your account and D1 bindings, then deploy.
+5. Add the client scripts to your site and set `window.LIKES_CONFIG` / `window.COMMENTS_CONFIG`.
 
 For detailed setup: see [Installation Guide](./docs/INSTALLATION.md)
 
@@ -66,7 +67,7 @@ POST request to /comments endpoint
   ↓
 Worker stores as "pending" in D1
   ↓
-You approve via CLI: node cli.js approve 5
+You approve via CLI: cflc approve 5
   ↓
 Comment visible on next page load
 ```
@@ -146,13 +147,37 @@ For comment moderation and D1 SQL examples, see `docs/MANAGEMENT.md`.
 
 - `docs/MANAGEMENT.md` — CLI commands, pending/approved/rejected workflows, bulk operations, backups, and advanced queries
 
+### Sync Approved Comments into a README
+
+GitHub README Markdown cannot run custom JavaScript, but you can publish approved comments as normal Markdown with the included sync script:
+
+```markdown
+## Profile Comments
+
+<!-- comments:start -->
+_No approved comments yet._
+<!-- comments:end -->
+```
+
+Run the sync after comments are approved:
+
+```bash
+COMMENTS_ENDPOINT=https://your-worker.workers.dev/comments \
+README_COMMENTS_PAGE_ID=/ \
+npm run sync:readme-comments
+```
+
+The repository also includes `.github/workflows/sync-readme-comments.yml` so a GitHub Action can refresh that block on a schedule and commit changes to `README.md`.
+
 ## Project Structure
 
 ```
 ├── src/
 │   ├── worker.js          # Cloudflare Worker implementation
 │   ├── schema.sql         # D1 database schema
-│   └── cli.js             # Comment management CLI
+│   ├── cli.js             # Comment management CLI
+│   ├── setup-env.js       # Guided .env setup CLI
+│   └── update-readme-comments.js # README comment sync script
 ├── client/
 │   ├── likes.js           # Client-side likes script
 │   └── comments.js        # Client-side comments script
@@ -167,6 +192,7 @@ For comment moderation and D1 SQL examples, see `docs/MANAGEMENT.md`.
 │   ├── INSTALLATION.md    # Setup & installation guide
 │   ├── MANAGEMENT.md      # Comment moderation guide
 │   └── DEPLOYMENT.md      # Production deployment guide
+├── .env.example           # Root environment template
 └── LICENSE                # MIT License
 ```
 
@@ -198,15 +224,20 @@ Simple HTML pages with likes and/or comments support—no framework needed.
 
 ### GitHub README
 
-See [examples/readme/likes-badge.html](./examples/readme/likes-badge.html)
+See:
+- [examples/readme/likes-badge.html](./examples/readme/likes-badge.html) for a like-only companion page
+- [examples/readme/likes-comments-template.html](./examples/readme/likes-comments-template.html) for likes plus moderated comments
 
-Add a like button to your README:
+GitHub README Markdown does not run custom JavaScript, so host one of these HTML files with GitHub Pages or another static host, then link to it from your README:
 
 ```markdown
 # My Project
 
 [View with likes](https://your-repo/examples/readme/likes-badge.html)
+[View discussion](https://your-repo/examples/readme/likes-comments-template.html)
 ```
+
+To display approved comments directly in the README, add the `comments:start` / `comments:end` markers and enable the sync workflow. The interactive form still lives on the hosted companion page, while the README shows a periodically committed snapshot of approved comments.
 
 ### Next.js / React
 

@@ -1,9 +1,35 @@
 {
-  "name": "cloudflare-likes-and-comments",
+  "name": "cflc",
   "version": "1.0.0",
   "description": "A Cloudflare Workers demo for likes and comments with D1 support.",
-  "private": true,
+  "license": "MIT",
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "d1",
+    "likes",
+    "comments",
+    "static-site"
+  ],
+  "bin": {
+    "cflc": "./src/cflc.js"
+  },
+  "files": [
+    ".env.example",
+    "client/",
+    "config/",
+    "docs/",
+    "examples/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
   "scripts": {
+    "setup:env": "node src/cflc.js setup-env",
+    "sync:readme-comments": "node src/cflc.js sync-readme-comments",
     "test": "node --test"
   }
 }

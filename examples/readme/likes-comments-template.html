@@ -1,0 +1,464 @@
+<!-- GitHub README likes and comments template
+
+     GitHub README Markdown does not run custom JavaScript, so use this as a
+     companion HTML page from GitHub Pages, your docs site, or another static host.
+     Link to this page from your README to let visitors like and comment.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Likes and Comments</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --panel: #f6f8fa;
+            --border: #d0d7de;
+            --text: #24292f;
+            --muted: #57606a;
+            --accent: #0969da;
+            --accent-dark: #0757b3;
+            --success-bg: #dafbe1;
+            --success-border: #2da44e;
+            --danger: #cf222e;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.5;
+        }
+
+        .readme-page {
+            width: min(100% - 32px, 860px);
+            margin: 0 auto;
+            padding: 24px 0 48px;
+        }
+
+        .readme-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+            padding-bottom: 18px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .readme-header h1 {
+            margin: 0 0 6px;
+            font-size: clamp(1.6rem, 4vw, 2.3rem);
+            line-height: 1.15;
+        }
+
+        .readme-header p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        .repo-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .repo-link,
+        [data-like-button],
+        [data-comment-send],
+        .comment-like-button,
+        .comment-reply-button,
+        .cancel-button,
+        .submit-button {
+            min-height: 36px;
+            border-radius: 6px;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .repo-link {
+            display: inline-flex;
+            align-items: center;
+            padding: 7px 14px;
+            border: 1px solid var(--border);
+            color: var(--text);
+            text-decoration: none;
+            background: var(--panel);
+        }
+
+        .repo-link:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        [data-like-button] {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        [data-like-button]:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        [data-like-button].is-liked {
+            background: var(--success-bg);
+            border-color: var(--success-border);
+            color: #1a7f37;
+        }
+
+        [data-like-button]:disabled,
+        [data-comment-send]:disabled,
+        .comment-like-button:disabled {
+            opacity: 0.65;
+            cursor: default;
+        }
+
+        .readme-card {
+            padding: 18px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel);
+        }
+
+        .readme-card h2,
+        .comments-heading {
+            margin: 0 0 10px;
+            font-size: 1.2rem;
+            line-height: 1.25;
+        }
+
+        .readme-card p {
+            margin: 0;
+            color: var(--muted);
+        }
+
+        [data-comment-list] {
+            margin: 16px 0 20px;
+        }
+
+        .comment-item {
+            padding: 14px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 6px;
+            background: var(--bg);
+        }
+
+        .comment-reply {
+            margin-top: 12px;
+        }
+
+        .comment-meta {
+            margin: 0 0 8px;
+            color: var(--muted);
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .comment-body {
+            margin: 0 0 12px;
+            white-space: pre-wrap;
+        }
+
+        .comment-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .comment-like-button,
+        .comment-reply-button,
+        .cancel-button {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .comment-like-button:hover:not(:disabled),
+        .comment-reply-button:hover,
+        .cancel-button:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .comment-empty {
+            margin: 0;
+            padding: 20px;
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        [data-comment-status] {
+            min-height: 24px;
+            margin-bottom: 10px;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        [data-comment-status].is-error {
+            color: var(--danger);
+        }
+
+        [data-comment-draft-form] {
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel);
+        }
+
+        [data-comment-draft-form] textarea {
+            width: 100%;
+            min-height: 112px;
+            resize: vertical;
+            display: block;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font: inherit;
+            background: var(--bg);
+        }
+
+        [data-comment-draft-form] textarea:focus,
+        .modal-field input:focus {
+            outline: 2px solid rgba(9, 105, 218, 0.25);
+            border-color: var(--accent);
+        }
+
+        [data-comment-send],
+        .submit-button {
+            padding: 7px 14px;
+            border: 1px solid var(--accent);
+            background: var(--accent);
+            color: #ffffff;
+        }
+
+        [data-comment-send]:hover:not(:disabled),
+        .submit-button:hover {
+            border-color: var(--accent-dark);
+            background: var(--accent-dark);
+        }
+
+        [data-comment-modal] {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(36, 41, 47, 0.55);
+        }
+
+        [data-comment-modal]:not([hidden]) {
+            display: flex;
+        }
+
+        .modal-dialog {
+            width: min(100%, 460px);
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            box-shadow: 0 16px 48px rgba(36, 41, 47, 0.24);
+        }
+
+        .modal-dialog h3 {
+            margin: 0 0 16px;
+            font-size: 1.15rem;
+        }
+
+        .modal-field {
+            margin-bottom: 14px;
+        }
+
+        .modal-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .modal-field input {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font: inherit;
+        }
+
+        .honeypot {
+            position: absolute;
+            left: -9999px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+        }
+
+        .form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        @media (max-width: 640px) {
+            .readme-header {
+                display: block;
+            }
+
+            .repo-actions {
+                justify-content: flex-start;
+                margin-top: 16px;
+            }
+
+            .repo-link,
+            [data-like-button],
+            [data-comment-send] {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .form-actions {
+                flex-direction: column;
+            }
+
+            .cancel-button,
+            .submit-button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="readme-page">
+        <header class="readme-header">
+            <div>
+                <h1>Your Project Name</h1>
+                <p>A small companion page for README likes and moderated discussion.</p>
+            </div>
+
+            <div class="repo-actions">
+                <a class="repo-link" href="https://github.com/your-username/your-repo">View repo</a>
+                <button
+                    data-like-button
+                    data-path="/"
+                    aria-label="Like this project"
+                >
+                    <span aria-hidden="true">&hearts;</span>
+                    <span>Like</span>
+                    (<span data-like-count>0</span>)
+                </button>
+            </div>
+        </header>
+
+        <section class="readme-card" aria-labelledby="readme-template-heading">
+            <h2 id="readme-template-heading">README Discussion</h2>
+            <p>
+                Share feedback, questions, or notes about the project. New comments appear after moderation.
+            </p>
+        </section>
+
+        <section
+            data-worker-comments
+            data-page-id="/"
+            data-page-url="https://github.com/your-username/your-repo"
+            data-page-title="Your Project Name"
+            aria-labelledby="comments-heading"
+        >
+            <h2 class="comments-heading" id="comments-heading">Comments</h2>
+            <div data-comment-list></div>
+            <div data-comment-status></div>
+
+            <form data-comment-draft-form>
+                <textarea
+                    name="content"
+                    placeholder="Write a comment..."
+                    maxlength="2000"
+                    required
+                ></textarea>
+                <button type="submit" data-comment-send disabled>Post Comment</button>
+            </form>
+
+            <div data-comment-modal hidden>
+                <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="identity-heading">
+                    <h3 id="identity-heading">Before posting</h3>
+                    <form data-comment-identity-form>
+                        <div class="modal-field">
+                            <label for="comment-name">Name</label>
+                            <input
+                                id="comment-name"
+                                type="text"
+                                name="nickname"
+                                maxlength="80"
+                                autocomplete="name"
+                                required
+                            />
+                        </div>
+
+                        <div class="modal-field">
+                            <label for="comment-email">Email (optional)</label>
+                            <input
+                                id="comment-email"
+                                type="email"
+                                name="email"
+                                maxlength="254"
+                                autocomplete="email"
+                            />
+                        </div>
+
+                        <div class="honeypot" aria-hidden="true">
+                            <label for="comment-website">Website</label>
+                            <input
+                                id="comment-website"
+                                type="text"
+                                name="website"
+                                tabindex="-1"
+                                autocomplete="off"
+                            />
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" class="cancel-button" data-comment-cancel>Cancel</button>
+                            <button type="submit" class="submit-button">Submit</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        window.LIKES_CONFIG = {
+            endpoint: 'https://YOUR_WORKER_URL/likes'
+        };
+
+        window.COMMENTS_CONFIG = {
+            endpoint: 'https://YOUR_WORKER_URL/comments'
+        };
+    </script>
+    <script src="../../client/likes.js"></script>
+    <script src="../../client/comments.js"></script>
+</body>
+</html>
