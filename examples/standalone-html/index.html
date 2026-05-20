@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standalone Likes & Comments Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0066cc;
+            --border: #e0e0e0;
+            --text: #333;
+            --text-light: #666;
+            --bg-light: #f9f9f9;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: white;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .meta {
+            color: var(--text-light);
+            font-size: 0.95em;
+        }
+
+        .example-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            margin-right: 16px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .example-link:hover {
+            text-decoration: underline;
+        }
+
+        .article {
+            margin: 30px 0;
+            line-height: 1.8;
+        }
+
+        .article p {
+            margin-bottom: 15px;
+        }
+
+        .article h2 {
+            margin: 30px 0 15px 0;
+            font-size: 1.5em;
+        }
+
+        /* Engagement Section */
+        .engagement-section {
+            margin: 40px 0;
+            padding: 20px;
+            background: var(--bg-light);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .engagement-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        /* Like Button */
+        [data-like-button] {
+            display: inline-block;
+            padding: 12px 24px;
+            background: white;
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            color: var(--text);
+            transition: all 0.2s ease;
+        }
+
+        [data-like-button]:hover:not(:disabled) {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: #f0f4ff;
+        }
+
+        [data-like-button].is-liked {
+            background: #fffacd;
+            border-color: #ffc107;
+            color: #856404;
+            cursor: not-allowed;
+        }
+
+        [data-like-button]:disabled {
+            opacity: 0.6;
+        }
+
+        /* Comments Section */
+        .comments-container {
+            margin-top: 40px;
+        }
+
+        /* Comment List */
+        [data-comment-list] {
+            margin: 20px 0;
+        }
+
+        .comment-item {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 3px solid var(--primary);
+            background: white;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+
+        .comment-meta {
+            font-size: 0.85em;
+            color: var(--text-light);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .comment-body {
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .comment-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-light);
+            font-style: italic;
+        }
+
+        /* Comment Form */
+        [data-comment-draft-form] {
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        [data-comment-draft-form] textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 1em;
+            resize: vertical;
+            margin-bottom: 15px;
+        }
+
+        [data-comment-draft-form] textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        [data-comment-send] {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            transition: background 0.2s ease;
+        }
+
+        [data-comment-send]:hover:not(:disabled) {
+            background: #0052a3;
+        }
+
+        [data-comment-send]:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Identity Modal */
+        [data-comment-modal] {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        [data-comment-modal]:not([hidden]) {
+            display: flex;
+        }
+
+        .modal-dialog {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 450px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-dialog h3 {
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 1em;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .form-actions button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+        }
+
+        [data-comment-cancel] {
+            background: #f0f0f0;
+            color: var(--text);
+        }
+
+        [data-comment-cancel]:hover {
+            background: #e0e0e0;
+        }
+
+        [data-comment-identity-form] button[type="submit"] {
+            background: var(--primary);
+            color: white;
+        }
+
+        [data-comment-identity-form] button[type="submit"]:hover {
+            background: #0052a3;
+        }
+
+        /* Status Messages */
+        [data-comment-status] {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: none;
+        }
+
+        [data-comment-status]:not(:empty) {
+            display: block;
+        }
+
+        [data-comment-status].is-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header h1 {
+                font-size: 1.5em;
+            }
+
+            [data-like-button] {
+                width: 100%;
+                padding: 12px;
+                font-size: 1em;
+            }
+
+            .modal-dialog {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>My Amazing Blog Post</h1>
+            <p class="meta">Published on December 19, 2024 by Your Name</p>
+        </header>
+
+        <div style="margin-bottom: 24px; display: flex; flex-wrap: wrap; gap: 12px;">
+            <a class="example-link" href="likes-only.html">Like-Only Example</a>
+            <a class="example-link" href="comments-only.html">Comment-Only Example</a>
+        </div>
+
+        <article class="article">
+            <p>
+                This is a sample blog post demonstrating the standalone integration of 
+                Cloudflare Likes and Comments. The engagement features work completely 
+                independently without requiring a full blog framework.
+            </p>
+
+            <h2>Section One</h2>
+            <p>
+                You can use this example as a starting point for adding likes and comments 
+                to any static HTML page. The JavaScript files handle all the interaction 
+                logic automatically.
+            </p>
+
+            <h2>Section Two</h2>
+            <p>
+                The system uses localStorage to prevent duplicate likes from the same browser, 
+                and comments are moderated on the backend before appearing publicly.
+            </p>
+        </article>
+
+        <!-- Engagement Section -->
+        <section class="engagement-section">
+            <div class="engagement-title">What do you think?</div>
+
+            <!-- Like Button -->
+            <button 
+                data-like-button 
+                data-path="/blog/standalone-example"
+                aria-label="Like this post"
+            >
+                ❤️ Like (<span data-like-count>0</span>)
+            </button>
+        </section>
+
+        <!-- Comments Section -->
+        <section class="comments-container">
+            <div class="engagement-title">Discussion</div>
+
+            <div 
+                data-worker-comments
+                data-page-id="/blog/standalone-example"
+                data-page-url="https://example.com/blog/standalone-example"
+                data-page-title="My Amazing Blog Post"
+            >
+                <!-- Comment List -->
+                <div data-comment-list></div>
+
+                <!-- Status Messages -->
+                <div data-comment-status></div>
+
+                <!-- Comment Form -->
+                <form data-comment-draft-form>
+                    <textarea
+                        name="content"
+                        placeholder="Share your thoughts on this post..."
+                        required
+                    ></textarea>
+                    <button 
+                        type="submit" 
+                        data-comment-send
+                        disabled
+                    >
+                        Post Comment
+                    </button>
+                </form>
+
+                <!-- Identity Modal -->
+                <div data-comment-modal hidden>
+                    <div class="modal-dialog">
+                        <h3>Before posting your comment</h3>
+                        <form data-comment-identity-form>
+                            <div class="form-group">
+                                <label for="name">Name *</label>
+                                <input
+                                    type="text"
+                                    id="name"
+                                    name="nickname"
+                                    placeholder="Your name"
+                                    maxlength="80"
+                                    required
+                                    autocomplete="name"
+                                />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="email">Email (optional)</label>
+                                <input
+                                    type="email"
+                                    id="email"
+                                    name="email"
+                                    placeholder="your@email.com"
+                                    maxlength="254"
+                                    autocomplete="email"
+                                />
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="button" data-comment-cancel>Cancel</button>
+                                <button type="submit">Submit</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Load Likes Feature -->
+    <script>
+        window.LIKES_CONFIG = {
+            endpoint: 'https://YOUR_WORKER_URL/likes'
+        };
+    </script>
+    <script src="../../client/likes.js"></script>
+
+    <!-- Load Comments Feature -->
+    <script>
+        window.COMMENTS_CONFIG = {
+            endpoint: 'https://YOUR_WORKER_URL/comments'
+        };
+    </script>
+    <script src="../../client/comments.js"></script>
+</body>
+</html>

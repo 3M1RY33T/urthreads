@@ -1,0 +1,389 @@
+<!-- Jekyll Post Layout with Likes & Comments
+     
+     Add this to your _layouts/post.html or use as reference
+     This example shows how to integrate likes and comments into a Jekyll blog post
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ page.title }} | {{ site.title }}</title>
+    <meta name="description" content="{{ page.excerpt | strip_html | strip_newlines }}">
+    <style>
+        /* Basic styling - customize to your needs */
+        :root {
+            --primary: #0066cc;
+            --border: #e0e0e0;
+            --text: #333;
+            --text-light: #666;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .post-header {
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+
+        .post-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 2.5em;
+        }
+
+        .post-meta {
+            color: var(--text-light);
+            font-size: 0.9em;
+        }
+
+        .post-content {
+            margin: 30px 0;
+            line-height: 1.8;
+        }
+
+        /* Engagement Section */
+        .post-engagement {
+            margin: 40px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .engagement-header {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text);
+        }
+
+        /* Like Button */
+        [data-like-button] {
+            padding: 10px 20px;
+            background: white;
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            color: var(--text);
+            transition: all 0.2s ease;
+        }
+
+        [data-like-button]:hover:not(:disabled) {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        [data-like-button].is-liked {
+            background: #fff3cd;
+            border-color: #ffc107;
+            color: #856404;
+            cursor: default;
+        }
+
+        [data-like-button]:disabled {
+            opacity: 0.6;
+        }
+
+        /* Comments Section */
+        .post-comments {
+            margin-top: 40px;
+        }
+
+        [data-comment-list] {
+            list-style: none;
+            padding: 0;
+            margin: 20px 0;
+        }
+
+        .comment-item {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 3px solid var(--primary);
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+
+        .comment-meta {
+            margin: 0;
+            font-size: 0.9em;
+            color: var(--text-light);
+            font-weight: 600;
+        }
+
+        .comment-body {
+            margin: 10px 0 0 0;
+            color: var(--text);
+        }
+
+        .comment-empty {
+            color: var(--text-light);
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* Comment Form */
+        [data-comment-draft-form] {
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .comment-field {
+            width: 100%;
+            margin-bottom: 15px;
+            font-size: 1em;
+        }
+
+        textarea.comment-field {
+            font-family: inherit;
+            min-height: 100px;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            resize: vertical;
+        }
+
+        [data-comment-send] {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s ease;
+        }
+
+        [data-comment-send]:hover:not(:disabled) {
+            background: #0052a3;
+        }
+
+        [data-comment-send]:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Identity Modal */
+        [data-comment-modal] {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        [data-comment-modal]:not([hidden]) {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-content h3 {
+            margin-top: 0;
+        }
+
+        .modal-field {
+            margin-bottom: 15px;
+        }
+
+        .modal-field label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        .modal-field input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        [data-comment-cancel] {
+            flex: 1;
+            padding: 10px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        /* Status Messages */
+        [data-comment-status] {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            background: #d4edda;
+            color: #155724;
+            display: none;
+        }
+
+        [data-comment-status]:not(:empty) {
+            display: block;
+        }
+
+        [data-comment-status].is-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <article class="post">
+        <header class="post-header">
+            <h1>{{ page.title }}</h1>
+            <div class="post-meta">
+                By {{ page.author | default: site.author }} on 
+                {{ page.date | date: "%B %d, %Y" }}
+            </div>
+        </header>
+
+        <main class="post-content">
+            {{ content }}
+        </main>
+
+        <!-- Engagement Section: Likes & Comments -->
+        <section class="post-engagement">
+            <div class="engagement-header">Engagement</div>
+
+            <!-- Like Button -->
+            {% if site.likes.endpoint %}
+            <button 
+                data-like-button 
+                data-path="{{ page.url }}"
+                aria-label="Like this post"
+            >
+                ❤️ Like (<span data-like-count>0</span>)
+            </button>
+            {% endif %}
+        </section>
+
+        <!-- Comments Section -->
+        {% if site.comments.endpoint %}
+        <section class="post-comments">
+            <div class="engagement-header">Comments</div>
+
+            <div 
+                data-worker-comments
+                data-page-id="{{ page.url }}"
+                data-page-url="{{ site.url }}{{ page.url }}"
+                data-page-title="{{ page.title }}"
+            >
+                <!-- Comment List -->
+                <div data-comment-list></div>
+
+                <!-- Comment Status Messages -->
+                <div data-comment-status></div>
+
+                <!-- Comment Draft Form -->
+                <form data-comment-draft-form>
+                    <textarea
+                        class="comment-field"
+                        data-comment-draft-field
+                        name="content"
+                        placeholder="Share your thoughts..."
+                        required
+                    ></textarea>
+                    <button 
+                        class="comment-send-button"
+                        type="submit"
+                        data-comment-send
+                        disabled
+                    >
+                        Post Comment
+                    </button>
+                </form>
+
+                <!-- Identity Modal (Nickname & Email) -->
+                <div data-comment-modal hidden>
+                    <div class="modal-content">
+                        <h3>Comment Details</h3>
+                        <form data-comment-identity-form>
+                            <div class="modal-field">
+                                <label for="comment-nickname">Name *</label>
+                                <input
+                                    type="text"
+                                    id="comment-nickname"
+                                    name="nickname"
+                                    placeholder="Your name"
+                                    maxlength="80"
+                                    required
+                                />
+                            </div>
+
+                            <div class="modal-field">
+                                <label for="comment-email">Email</label>
+                                <input
+                                    type="email"
+                                    id="comment-email"
+                                    name="email"
+                                    placeholder="your@email.com (optional)"
+                                    maxlength="254"
+                                />
+                            </div>
+
+                            <div class="modal-actions">
+                                <button type="button" data-comment-cancel>Cancel</button>
+                                <button type="submit">Submit Comment</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+    </article>
+
+    <!-- Load the client-side scripts -->
+    {% if site.likes.endpoint %}
+    <script>
+        window.LIKES_CONFIG = {
+            endpoint: '{{ site.likes.endpoint }}'
+        };
+    </script>
+    <script src="/assets/js/likes.js"></script>
+    {% endif %}
+
+    {% if site.comments.endpoint %}
+    <script>
+        window.COMMENTS_CONFIG = {
+            endpoint: '{{ site.comments.endpoint }}'
+        };
+    </script>
+    <script src="/assets/js/comments.js"></script>
+    {% endif %}
+</body>
+</html>

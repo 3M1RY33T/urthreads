@@ -1,0 +1,9 @@
+{
+  "name": "cloudflare-likes-and-comments",
+  "version": "1.0.0",
+  "description": "A Cloudflare Workers demo for likes and comments with D1 support.",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

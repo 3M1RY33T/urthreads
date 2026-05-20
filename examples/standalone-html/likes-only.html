@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standalone Like-Only Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0066cc;
+            --border: #e0e0e0;
+            --text: #333;
+            --bg-light: #f9f9f9;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: white;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 32px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .meta {
+            color: var(--primary);
+            font-size: 0.95rem;
+        }
+
+        p {
+            margin-bottom: 18px;
+        }
+
+        .example-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .card {
+            padding: 24px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-light);
+        }
+
+        [data-like-button] {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 26px;
+            margin-top: 16px;
+            background: white;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 700;
+            transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+        }
+
+        [data-like-button]:hover:not(:disabled) {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        [data-like-button].is-liked,
+        [data-like-button]:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 16px;
+            }
+
+            [data-like-button] {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Like-Only Example</h1>
+            <p class="meta">Minimal integration for tracking likes without comments.</p>
+        </header>
+
+        <a class="example-link" href="index.html">← Back to Like + Comment</a>
+        <a class="example-link" href="comments-only.html">Comment-Only Example →</a>
+
+        <div class="card">
+            <p>This example shows how to add a like button to a static page without loading the comments UI.</p>
+
+            <button
+                data-like-button
+                data-path="/blog/like-only-example"
+                aria-label="Like this post"
+            >
+                ❤️ Like (<span data-like-count>0</span>)
+            </button>
+        </div>
+    </div>
+
+    <script>
+        window.LIKES_CONFIG = {
+            endpoint: 'https://YOUR_WORKER_URL/likes'
+        };
+    </script>
+    <script src="../../client/likes.js"></script>
+</body>
+</html>

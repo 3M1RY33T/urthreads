@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Standalone Comment-Only Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0066cc;
+            --border: #e0e0e0;
+            --text: #333;
+            --text-light: #666;
+            --bg-light: #f9f9f9;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: white;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 32px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .meta {
+            color: var(--primary);
+            font-size: 0.95rem;
+        }
+
+        .example-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .comments-container {
+            padding: 24px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--bg-light);
+        }
+
+        .comment-item {
+            padding: 18px;
+            margin-bottom: 16px;
+            border-left: 4px solid var(--primary);
+            background: white;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .comment-meta {
+            font-size: 0.85rem;
+            color: var(--text-light);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .comment-body {
+            margin-bottom: 12px;
+        }
+
+        .comment-empty {
+            text-align: center;
+            color: var(--text-light);
+            font-style: italic;
+            padding: 24px 0;
+        }
+
+        [data-comment-draft-form] {
+            margin-top: 20px;
+        }
+
+        [data-comment-draft-form] textarea {
+            width: 100%;
+            min-height: 110px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            font-family: inherit;
+            font-size: 1rem;
+            resize: vertical;
+        }
+
+        [data-comment-draft-form] textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        [data-comment-send] {
+            margin-top: 14px;
+            padding: 12px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        [data-comment-send]:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+        }
+
+        [data-comment-modal] {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            z-index: 1000;
+        }
+
+        [data-comment-modal]:not([hidden]) {
+            display: flex;
+        }
+
+        .modal-dialog {
+            width: 100%;
+            max-width: 460px;
+            background: white;
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.12);
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 700;
+            font-size: 0.95rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .form-actions button {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+        }
+
+        .cancel-button {
+            background: #f0f0f0;
+            color: var(--text);
+        }
+
+        .submit-button {
+            background: var(--primary);
+            color: white;
+        }
+
+        [data-comment-status] {
+            margin-top: 18px;
+            padding: 14px;
+            border-radius: 8px;
+            border: 1px solid #c3e6cb;
+            background: #d4edda;
+            color: #155724;
+            display: none;
+        }
+
+        [data-comment-status]:not(:empty) {
+            display: block;
+        }
+
+        [data-comment-status].is-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 16px;
+            }
+
+            [data-comment-send] {
+                width: 100%;
+            }
+
+            .form-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Comment-Only Example</h1>
+            <p class="meta">Minimal integration for comments without likes.</p>
+        </header>
+
+        <a class="example-link" href="index.html">← Back to Like + Comment</a>
+        <a class="example-link" href="likes-only.html">Like-Only Example →</a>
+
+        <div class="comments-container">
+            <div data-worker-comments
+                data-page-id="/blog/comment-only-example"
+                data-page-url="https://example.com/blog/comment-only-example"
+                data-page-title="Comment-Only Example"
+            >
+                <div data-comment-list></div>
+                <div data-comment-status></div>
+
+                <form data-comment-draft-form>
+                    <textarea
+                        name="content"
+                        placeholder="Write your comment here..."
+                        required
+                    ></textarea>
+                    <button type="submit" data-comment-send disabled>Post Comment</button>
+                </form>
+
+                <div data-comment-modal hidden>
+                    <div class="modal-dialog">
+                        <h3>Before posting your comment</h3>
+                        <form data-comment-identity-form>
+                            <div class="form-group">
+                                <label for="name">Name *</label>
+                                <input type="text" id="name" name="nickname" maxlength="80" required autocomplete="name" />
+                            </div>
+                            <div class="form-group">
+                                <label for="email">Email (optional)</label>
+                                <input type="email" id="email" name="email" maxlength="254" autocomplete="email" />
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" class="cancel-button" data-comment-cancel>Cancel</button>
+                                <button type="submit" class="submit-button">Submit</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.COMMENTS_CONFIG = {
+            endpoint: 'https://YOUR_WORKER_URL/comments'
+        };
+    </script>
+    <script src="../../client/comments.js"></script>
+</body>
+</html>
