@@ -29,7 +29,6 @@
   },
   "scripts": {
     "setup:env": "node src/cflc.js setup-env",
-    "sync:readme-comments": "node src/cflc.js sync-readme-comments",
     "test": "node --test"
   }
 }

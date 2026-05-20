@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CLFC</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>CLFC Dashboard</h1>
+        <p>Admin dashboard</p>
+      </div>
+
+      <form class="connection-form" data-config-form>
+        <div class="field">
+          <label for="worker-url">Worker URL</label>
+          <input
+            id="worker-url"
+            name="workerUrl"
+            type="url"
+            placeholder="https://worker.example.workers.dev"
+            autocomplete="url"
+            required
+          />
+        </div>
+
+        <div class="field">
+          <label for="admin-key">Admin key</label>
+          <input
+            id="admin-key"
+            name="adminKey"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+
+        <button class="primary-button" type="submit">Connect</button>
+        <div class="status-line" data-status></div>
+      </form>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h2>Overview</h2>
+        <div class="topbar-actions">
+          <button type="button" data-refresh>Refresh</button>
+          <a class="button-link" data-cloudflare-link href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer">Cloudflare</a>
+        </div>
+      </header>
+
+      <section class="stats-grid" aria-label="Summary">
+        <div class="stat">
+          <span>Page likes</span>
+          <strong data-page-likes>0</strong>
+        </div>
+        <div class="stat">
+          <span>Comment likes</span>
+          <strong data-comment-likes>0</strong>
+        </div>
+        <div class="stat">
+          <span>Pending</span>
+          <strong data-pending-comments>0</strong>
+        </div>
+        <div class="stat">
+          <span>Approved</span>
+          <strong data-approved-comments>0</strong>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <section class="panel" aria-labelledby="comments-heading">
+          <div class="panel-header">
+            <h3 id="comments-heading">Comments</h3>
+            <div class="filters">
+              <select data-comment-status>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+              </select>
+              <input data-comment-path type="text" placeholder="/path" />
+              <select data-comment-limit>
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+          <ul class="comment-list" data-comment-list></ul>
+        </section>
+
+        <div>
+          <section class="panel" aria-labelledby="likes-heading">
+            <div class="panel-header">
+              <h3 id="likes-heading">Top Likes</h3>
+            </div>
+            <ul class="likes-list" data-likes-list></ul>
+          </section>
+
+          <section class="panel panel-spaced" aria-labelledby="worker-heading">
+            <div class="panel-header">
+              <h3 id="worker-heading">Worker</h3>
+            </div>
+            <ul class="worker-list" data-worker-list></ul>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (function() {
+      const state = {
+        workerUrl: window.sessionStorage.getItem('cflc:admin:workerUrl') || '',
+        adminKey: window.sessionStorage.getItem('cflc:admin:adminKey') || '',
+      };
+
+      const elements = {
+        form: document.querySelector('[data-config-form]'),
+        status: document.querySelector('[data-status]'),
+        workerUrl: document.querySelector('[name="workerUrl"]'),
+        adminKey: document.querySelector('[name="adminKey"]'),
+        refresh: document.querySelector('[data-refresh]'),
+        pageLikes: document.querySelector('[data-page-likes]'),
+        commentLikes: document.querySelector('[data-comment-likes]'),
+        pendingComments: document.querySelector('[data-pending-comments]'),
+        approvedComments: document.querySelector('[data-approved-comments]'),
+        commentStatus: document.querySelector('[data-comment-status]'),
+        commentPath: document.querySelector('[data-comment-path]'),
+        commentLimit: document.querySelector('[data-comment-limit]'),
+        commentList: document.querySelector('[data-comment-list]'),
+        likesList: document.querySelector('[data-likes-list]'),
+        workerList: document.querySelector('[data-worker-list]'),
+      };
+
+      elements.workerUrl.value = state.workerUrl;
+      elements.adminKey.value = state.adminKey;
+
+      function setStatus(message, isError) {
+        elements.status.textContent = message || '';
+        elements.status.classList.toggle('is-error', Boolean(isError));
+      }
+
+      function endpoint(path) {
+        return `${state.workerUrl.replace(/\/+$/, '')}${path}`;
+      }
+
+      async function requestAdmin(path, options) {
+        if (!state.workerUrl || !state.adminKey) {
+          throw new Error('Worker URL and admin key are required.');
+        }
+
+        const response = await fetch(endpoint(path), {
+          ...options,
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${state.adminKey}`,
+            ...(options && options.body ? { 'Content-Type': 'application/json' } : {}),
+            ...(options && options.headers ? options.headers : {}),
+          },
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || `Request failed with ${response.status}.`);
+        }
+        return payload;
+      }
+
+      function formatDate(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        return new Intl.DateTimeFormat([], {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }).format(date);
+      }
+
+      function setEmpty(list, message) {
+        list.replaceChildren();
+        const item = document.createElement('li');
+        item.className = 'empty-state';
+        item.textContent = message;
+        list.append(item);
+      }
+
+      function renderSummary(summary) {
+        elements.pageLikes.textContent = String(summary.likes?.totalLikes || 0);
+        elements.commentLikes.textContent = String(summary.likes?.totalCommentLikes || 0);
+        elements.pendingComments.textContent = String(summary.comments?.pending || 0);
+        elements.approvedComments.textContent = String(summary.comments?.approved || 0);
+      }
+
+      function makeStatusPill(status) {
+        const pill = document.createElement('span');
+        pill.className = `status-pill ${status}`;
+        pill.textContent = status;
+        return pill;
+      }
+
+      function makeCommentItem(comment) {
+        const item = document.createElement('li');
+        item.className = 'comment-item';
+
+        const meta = document.createElement('div');
+        meta.className = 'comment-meta';
+        const author = document.createElement('span');
+        author.textContent = `${comment.authorName || 'Anonymous'} #${comment.id}`;
+        const createdAt = document.createElement('span');
+        createdAt.textContent = formatDate(comment.createdAt);
+        meta.append(author, createdAt);
+
+        const title = document.createElement('div');
+        title.className = 'comment-title';
+        title.textContent = `${comment.pageTitle || comment.path} (${comment.path})`;
+
+        const body = document.createElement('p');
+        body.className = 'comment-body';
+        body.textContent = comment.content || '';
+
+        const actions = document.createElement('div');
+        actions.className = 'comment-actions';
+        actions.append(makeStatusPill(comment.status));
+
+        const approveButton = document.createElement('button');
+        approveButton.type = 'button';
+        approveButton.className = 'success-button';
+        approveButton.textContent = 'Approve';
+        approveButton.disabled = comment.status === 'approved';
+        approveButton.addEventListener('click', () => updateComment(comment.id, 'approve'));
+
+        const rejectButton = document.createElement('button');
+        rejectButton.type = 'button';
+        rejectButton.className = 'danger-button';
+        rejectButton.textContent = 'Reject';
+        rejectButton.disabled = comment.status === 'rejected';
+        rejectButton.addEventListener('click', () => updateComment(comment.id, 'reject'));
+
+        actions.append(approveButton, rejectButton);
+        item.append(meta, title, body, actions);
+        return item;
+      }
+
+      function renderComments(comments) {
+        elements.commentList.replaceChildren();
+        if (!comments.length) {
+          setEmpty(elements.commentList, 'No comments found.');
+          return;
+        }
+        comments.forEach((comment) => {
+          elements.commentList.append(makeCommentItem(comment));
+        });
+      }
+
+      function renderLikes(likes) {
+        elements.likesList.replaceChildren();
+        if (!likes.length) {
+          setEmpty(elements.likesList, 'No likes found.');
+          return;
+        }
+        likes.forEach((like) => {
+          const item = document.createElement('li');
+          item.className = 'likes-item';
+          const meta = document.createElement('div');
+          meta.className = 'likes-meta';
+          const count = document.createElement('span');
+          count.textContent = `${like.count} like${like.count === 1 ? '' : 's'}`;
+          const updated = document.createElement('span');
+          updated.textContent = formatDate(like.updatedAt);
+          meta.append(count, updated);
+          const title = document.createElement('div');
+          title.className = 'likes-title';
+          title.textContent = like.path;
+          item.append(meta, title);
+          elements.likesList.append(item);
+        });
+      }
+
+      function renderWorker(worker) {
+        elements.workerList.replaceChildren();
+        [
+          ['URL', worker.workerUrl],
+          ['Name', worker.workerName || 'Not configured'],
+          ['Database', worker.databaseName || 'Not configured'],
+          ['Origins', (worker.allowedOrigins || []).join(', ') || 'None configured'],
+        ].forEach(([label, value]) => {
+          const item = document.createElement('li');
+          item.className = 'worker-item';
+          const meta = document.createElement('div');
+          meta.className = 'worker-meta';
+          meta.textContent = label;
+          const title = document.createElement('div');
+          title.className = 'worker-title';
+          title.textContent = value;
+          item.append(meta, title);
+          elements.workerList.append(item);
+        });
+      }
+
+      async function loadComments() {
+        const params = new URLSearchParams({
+          status: elements.commentStatus.value,
+          limit: elements.commentLimit.value,
+        });
+        const path = elements.commentPath.value.trim();
+        if (path) params.set('path', path);
+        const payload = await requestAdmin(`/admin/comments?${params.toString()}`);
+        renderComments(payload.comments || []);
+      }
+
+      async function updateComment(id, action) {
+        setStatus(`${action === 'approve' ? 'Approving' : 'Rejecting'} comment #${id}...`);
+        await requestAdmin(`/admin/comments/${action}`, {
+          method: 'POST',
+          body: JSON.stringify({ id }),
+        });
+        await refreshAll();
+      }
+
+      async function refreshAll() {
+        setStatus('Loading...');
+        try {
+          const [summary, likes, worker] = await Promise.all([
+            requestAdmin('/admin/summary'),
+            requestAdmin('/admin/likes?limit=20'),
+            requestAdmin('/admin/worker'),
+          ]);
+          renderSummary(summary);
+          renderLikes(likes.likes || []);
+          renderWorker(worker);
+          await loadComments();
+          setStatus('Connected.');
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Request failed.', true);
+        }
+      }
+
+      elements.form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        state.workerUrl = elements.workerUrl.value.trim();
+        state.adminKey = elements.adminKey.value.trim();
+        window.sessionStorage.setItem('cflc:admin:workerUrl', state.workerUrl);
+        window.sessionStorage.setItem('cflc:admin:adminKey', state.adminKey);
+        await refreshAll();
+      });
+
+      elements.refresh.addEventListener('click', refreshAll);
+      elements.commentStatus.addEventListener('change', loadComments);
+      elements.commentLimit.addEventListener('change', loadComments);
+      elements.commentPath.addEventListener('input', () => {
+        window.clearTimeout(elements.commentPath.searchTimeout);
+        elements.commentPath.searchTimeout = window.setTimeout(loadComments, 250);
+      });
+
+      if (state.workerUrl && state.adminKey) {
+        refreshAll();
+      } else {
+        setEmpty(elements.commentList, 'No comments loaded.');
+        setEmpty(elements.likesList, 'No likes loaded.');
+        setEmpty(elements.workerList, 'No worker loaded.');
+      }
+    })();
+  </script>
+</body>
+</html>

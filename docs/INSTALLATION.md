@@ -229,6 +229,15 @@ ALLOWED_ORIGINS=https://mysite.com,http://localhost:3000,http://localhost:8000
 ALLOWED_ORIGINS=*
 ```
 
+#### ADMIN_API_KEY
+Optional secret for the admin dashboard and protected admin endpoints.
+
+```bash
+wrangler secret put ADMIN_API_KEY
+```
+
+The static dashboard sends this value as a bearer token when calling `/admin/*` endpoints. Do not store it in `wrangler.toml` or commit it to the repository.
+
 #### D1 Database
 
 The database requires the schema from `src/schema.sql`:

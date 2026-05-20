@@ -2,7 +2,7 @@
 
 [📘 Readme](#cloudflare-likes--comments) · [⚙️ Installation](./docs/INSTALLATION.md) · [🛠️ Management](./docs/MANAGEMENT.md) · [🚀 Deployment](./docs/DEPLOYMENT.md)
 
-A lightweight, open-source engagement system for static websites. Add likes and moderated comments to any website—personal blogs, GitHub READMEs, documentation, or portfolios—backed by Cloudflare Workers and D1 database.
+A lightweight, open-source engagement system for static websites. Add likes and moderated comments to any website—personal blogs, documentation, or portfolios—backed by Cloudflare Workers and D1 database.
 
 **Zero server infrastructure. No databases to manage. Works everywhere.**
 
@@ -14,7 +14,7 @@ A lightweight, open-source engagement system for static websites. Add likes and 
 - 🌍 **Global Deployment**: Cloudflare Workers deployed worldwide
 - 🔒 **Lightweight Security**: Input validation, CORS protection, spam honeypot
 - 📊 **Simple Management**: CLI tool for approving/rejecting comments
-- 🎯 **Framework Agnostic**: Works with Jekyll, Next.js, plain HTML, GitHub README, anything
+- 🎯 **Framework Agnostic**: Works with Jekyll, Next.js, plain HTML, and other static sites
 - 📝 **Static Site Friendly**: No build step required, just add a script tag
 - 🚀 **Deploy in Minutes**: Simple setup with Cloudflare account
 
@@ -147,27 +147,17 @@ For comment moderation and D1 SQL examples, see `docs/MANAGEMENT.md`.
 
 - `docs/MANAGEMENT.md` — CLI commands, pending/approved/rejected workflows, bulk operations, backups, and advanced queries
 
-### Sync Approved Comments into a README
+### Admin Dashboard
 
-GitHub README Markdown cannot run custom JavaScript, but you can publish approved comments as normal Markdown with the included sync script:
+See [examples/admin-dashboard/index.html](./examples/admin-dashboard/index.html) for a static dashboard that connects to protected Worker admin endpoints.
 
-```markdown
-## Profile Comments
-
-<!-- comments:start -->
-_No approved comments yet._
-<!-- comments:end -->
-```
-
-Run the sync after comments are approved:
+Set an admin key before using it:
 
 ```bash
-COMMENTS_ENDPOINT=https://your-worker.workers.dev/comments \
-README_COMMENTS_PAGE_ID=/ \
-npm run sync:readme-comments
+wrangler secret put ADMIN_API_KEY
 ```
 
-The repository also includes `.github/workflows/sync-readme-comments.yml` so a GitHub Action can refresh that block on a schedule and commit changes to `README.md`.
+The dashboard can review pending comments, approve or reject comments, inspect top liked paths, and view the current Worker configuration returned by `/admin/worker`.
 
 ## Project Structure
 
@@ -176,15 +166,14 @@ The repository also includes `.github/workflows/sync-readme-comments.yml` so a G
 │   ├── worker.js          # Cloudflare Worker implementation
 │   ├── schema.sql         # D1 database schema
 │   ├── cli.js             # Comment management CLI
-│   ├── setup-env.js       # Guided .env setup CLI
-│   └── update-readme-comments.js # README comment sync script
+│   └── setup-env.js       # Guided .env setup CLI
 ├── client/
 │   ├── likes.js           # Client-side likes script
 │   └── comments.js        # Client-side comments script
 ├── examples/
+│   ├── admin-dashboard/   # Static admin dashboard
 │   ├── jekyll/            # Jekyll blog integration
-│   ├── standalone-html/   # Plain HTML example
-│   └── readme/            # GitHub README example
+│   └── standalone-html/   # Plain HTML example
 ├── config/
 │   ├── wrangler.toml.example  # Wrangler configuration template
 │   └── .env.example           # Environment variables template
@@ -222,22 +211,9 @@ See [examples/standalone-html/index.html](./examples/standalone-html/index.html)
 
 Simple HTML pages with likes and/or comments support—no framework needed.
 
-### GitHub README
+### Admin Dashboard
 
-See:
-- [examples/readme/likes-badge.html](./examples/readme/likes-badge.html) for a like-only companion page
-- [examples/readme/likes-comments-template.html](./examples/readme/likes-comments-template.html) for likes plus moderated comments
-
-GitHub README Markdown does not run custom JavaScript, so host one of these HTML files with GitHub Pages or another static host, then link to it from your README:
-
-```markdown
-# My Project
-
-[View with likes](https://your-repo/examples/readme/likes-badge.html)
-[View discussion](https://your-repo/examples/readme/likes-comments-template.html)
-```
-
-To display approved comments directly in the README, add the `comments:start` / `comments:end` markers and enable the sync workflow. The interactive form still lives on the hosted companion page, while the README shows a periodically committed snapshot of approved comments.
+Open [examples/admin-dashboard/index.html](./examples/admin-dashboard/index.html), enter your Worker URL and `ADMIN_API_KEY`, then manage comments and likes from one page.
 
 ### Next.js / React
 
@@ -400,6 +376,38 @@ Response:
   "likes": 4
 }
 ```
+
+### Admin Endpoints
+
+Admin endpoints require either `Authorization: Bearer <ADMIN_API_KEY>` or `X-Admin-Key: <ADMIN_API_KEY>`.
+
+**GET** `/admin/summary`
+
+Returns page likes, comment likes, comment status counts, and recent pending comments.
+
+**GET** `/admin/comments?status=pending&limit=50`
+
+Returns comments for moderation. `status` can be `pending`, `approved`, `rejected`, or `all`.
+
+**POST** `/admin/comments/approve`
+
+```json
+{ "id": 5 }
+```
+
+**POST** `/admin/comments/reject`
+
+```json
+{ "id": 5 }
+```
+
+**GET** `/admin/likes?limit=25`
+
+Returns top liked paths.
+
+**GET** `/admin/worker`
+
+Returns the current Worker URL and configured metadata. Cloudflare account-wide Worker listings should be proxied server-side rather than fetched from browser code.
 
 **GET** `/comments/like?commentId=123`
 

@@ -9,6 +9,32 @@ Comments are stored with a `status` field that controls visibility:
 
 This guide shows how to manage comments using the `cflc` CLI, Wrangler CLI, and D1.
 
+## Admin Dashboard
+
+The static dashboard in `examples/admin-dashboard/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/rejected comments, top liked paths, and Worker configuration metadata.
+
+Create an admin secret before using it:
+
+```bash
+wrangler secret put ADMIN_API_KEY
+```
+
+Then open the dashboard and enter:
+
+- Worker URL: `https://your-worker.workers.dev`
+- Admin key: the value you set for `ADMIN_API_KEY`
+
+The dashboard uses these protected endpoints:
+
+- `GET /admin/summary`
+- `GET /admin/comments?status=pending&limit=50`
+- `POST /admin/comments/approve`
+- `POST /admin/comments/reject`
+- `GET /admin/likes?limit=25`
+- `GET /admin/worker`
+
+Do not embed Cloudflare account API tokens in the dashboard. If you later want account-wide Worker listings, add a protected server-side proxy endpoint.
+
 ## CLI Tool (Recommended)
 
 Use the included CLI tool for easy comment management:
@@ -43,45 +69,6 @@ cflc pending
 cflc approve 5
 cflc reject 3
 ```
-
-## README Comment Sync
-
-GitHub README Markdown does not run custom JavaScript, so the interactive comment form should live on a hosted page such as `examples/readme/likes-comments-template.html`. To show approved comments inside the README itself, use the sync script to rewrite a managed Markdown block.
-
-Add this block to your profile `README.md`:
-
-```markdown
-## Profile Comments
-
-<!-- comments:start -->
-_No approved comments yet._
-<!-- comments:end -->
-```
-
-Run the sync locally:
-
-```bash
-COMMENTS_ENDPOINT=https://your-worker.workers.dev/comments \
-README_COMMENTS_PAGE_ID=/ \
-npm run sync:readme-comments
-```
-
-Supported environment variables:
-
-- `COMMENTS_ENDPOINT` or `README_COMMENTS_ENDPOINT`: Worker `/comments` endpoint
-- `README_COMMENTS_PAGE_ID`: comment path to fetch, defaults to `/`
-- `README_COMMENTS_FILE`: README file to update, defaults to `README.md`
-- `README_COMMENTS_LIMIT`: max comments to render, defaults to `10`
-- `README_COMMENTS_SOURCE_URL`: optional "Leave a comment" link
-- `README_COMMENTS_START_MARKER` / `README_COMMENTS_END_MARKER`: custom block markers
-
-The included `.github/workflows/sync-readme-comments.yml` runs on a schedule and by manual dispatch. In your GitHub repository settings, add:
-
-- Secret `COMMENTS_ENDPOINT`: `https://your-worker.workers.dev/comments`
-- Variable `README_COMMENTS_PAGE_ID`: `/`
-- Variable `README_COMMENTS_SOURCE_URL`: your hosted comment page URL
-
-The workflow commits `README.md` only when approved comments change.
 
 ## Manual D1 Commands
 
@@ -261,7 +248,7 @@ wrangler d1 execute likes-and-comments --remote --command \
 
 ### Scheduled Approval
 
-Use GitHub Actions or a cron job to auto-approve comments:
+Use a scheduled job to auto-approve comments:
 
 ```bash
 # Approve comments from known users automatically

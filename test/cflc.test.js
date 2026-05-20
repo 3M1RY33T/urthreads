@@ -4,7 +4,6 @@ const path = require("path");
 const { test } = require("node:test");
 const {
   MODERATION_COMMANDS,
-  README_SYNC_COMMANDS,
   SETUP_COMMANDS,
 } = require("../src/cflc");
 
@@ -21,7 +20,6 @@ test("exposes setup and moderation command groups", () => {
   assert.strictEqual(SETUP_COMMANDS.has("init"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("pending"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("approve"), true);
-  assert.strictEqual(README_SYNC_COMMANDS.has("sync-readme-comments"), true);
 });
 
 test("prints top-level help", () => {
@@ -31,7 +29,6 @@ test("prints top-level help", () => {
   assert.ok(result.stdout.includes("cflc - Cloudflare Likes & Comments"));
   assert.ok(result.stdout.includes("setup-env"));
   assert.ok(result.stdout.includes("approve <id>"));
-  assert.ok(result.stdout.includes("sync-readme-comments"));
 });
 
 test("routes setup help through cflc", () => {

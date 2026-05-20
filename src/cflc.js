@@ -6,7 +6,6 @@
 
 const moderationCli = require("./cli");
 const setupEnvCli = require("./setup-env");
-const readmeComments = require("./update-readme-comments");
 
 const MODERATION_COMMANDS = new Set([
   "pending",
@@ -22,11 +21,6 @@ const SETUP_COMMANDS = new Set([
   "setup:env",
   "env",
   "init",
-]);
-
-const README_SYNC_COMMANDS = new Set([
-  "sync-readme-comments",
-  "readme-comments",
 ]);
 
 function showHelp() {
@@ -48,9 +42,6 @@ COMMENT MANAGEMENT:
   stats                Show database statistics
   health               Run a D1 health check
 
-README SYNC:
-  sync-readme-comments Pull approved comments into README.md markers
-
 HELP:
   help                 Show this help message
   setup-env --help     Show .env setup help
@@ -58,7 +49,6 @@ HELP:
 
 EXAMPLES:
   cflc setup-env
-  cflc sync-readme-comments
   cflc pending
   cflc approve 5
   cflc list-approved /blog/my-post
@@ -76,13 +66,6 @@ async function main(argv = process.argv.slice(2)) {
 
   if (SETUP_COMMANDS.has(command)) {
     await setupEnvCli.main(argv.slice(1), { commandName: `cflc ${command}` });
-    return;
-  }
-
-  if (README_SYNC_COMMANDS.has(command)) {
-    const result = await readmeComments.syncReadmeComments(readmeComments.getConfig());
-    const status = result.changed ? "Updated" : "No changes for";
-    process.stdout.write(`${status} README comments with ${result.count} approved comment(s).\n`);
     return;
   }
 
@@ -110,7 +93,6 @@ if (require.main === module) {
 
 module.exports = {
   MODERATION_COMMANDS,
-  README_SYNC_COMMANDS,
   SETUP_COMMANDS,
   main,
   showHelp,

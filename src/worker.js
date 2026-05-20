@@ -38,7 +38,7 @@ function getCorsHeaders(request, env) {
         ? "*"
         : origin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Accept, Content-Type",
+      "Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, X-Admin-Key",
       "Vary": "Origin",
     };
   }
@@ -105,6 +105,30 @@ function formatTimestamp(value) {
   const timestamp = String(value || "");
   if (!timestamp) return "";
   return timestamp.includes("T") ? timestamp : `${timestamp.replace(" ", "T")}Z`;
+}
+
+function parsePositiveInteger(value, fallback, max) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) return fallback;
+  return Math.min(number, max);
+}
+
+function hasAdminAccess(request, env) {
+  const expectedKey = String(env.ADMIN_API_KEY || "").trim();
+  if (!expectedKey) return false;
+
+  const authorization = request.headers.get("Authorization") || "";
+  const bearerToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  const headerToken = request.headers.get("X-Admin-Key") || "";
+
+  return bearerToken === expectedKey || headerToken === expectedKey;
+}
+
+function requireAdminAccess(request, env) {
+  if (hasAdminAccess(request, env)) return null;
+  return jsonResponse(request, env, { error: "Admin access is required." }, 401);
 }
 
 /**
@@ -441,6 +465,243 @@ async function handleComments(request, env, url) {
   return jsonResponse(request, env, { error: "Method not allowed." }, 405);
 }
 
+async function getAdminSummary(env) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const [likeSummary, commentSummary, commentLikeSummary, recentPending] = await Promise.all([
+    env.DB.prepare(`
+      SELECT COUNT(*) as total_posts, COALESCE(SUM(count), 0) as total_likes
+      FROM post_likes
+    `).first(),
+    env.DB.prepare(`
+      SELECT
+        COUNT(*) as total_comments,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_comments,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_comments,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected_comments
+      FROM post_comments
+    `).first(),
+    env.DB.prepare(`
+      SELECT COALESCE(SUM(likes_count), 0) as total_comment_likes
+      FROM post_comments
+    `).first(),
+    env.DB.prepare(`
+      SELECT id, path, author_name, content, created_at
+      FROM post_comments
+      WHERE status = 'pending'
+      ORDER BY created_at ASC, id ASC
+      LIMIT 5
+    `).all(),
+  ]);
+
+  return {
+    likes: {
+      totalPosts: Number(likeSummary?.total_posts || 0),
+      totalLikes: Number(likeSummary?.total_likes || 0),
+      totalCommentLikes: Number(commentLikeSummary?.total_comment_likes || 0),
+    },
+    comments: {
+      total: Number(commentSummary?.total_comments || 0),
+      pending: Number(commentSummary?.pending_comments || 0),
+      approved: Number(commentSummary?.approved_comments || 0),
+      rejected: Number(commentSummary?.rejected_comments || 0),
+    },
+    recentPending: (recentPending.results || []).map((comment) => ({
+      id: comment.id,
+      path: comment.path,
+      authorName: comment.author_name,
+      content: comment.content,
+      createdAt: formatTimestamp(comment.created_at),
+    })),
+  };
+}
+
+async function listAdminComments(env, url) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const allowedStatuses = new Set(["pending", "approved", "rejected", "all"]);
+  const status = allowedStatuses.has(url.searchParams.get("status"))
+    ? url.searchParams.get("status")
+    : "pending";
+  const limit = parsePositiveInteger(url.searchParams.get("limit"), 50, 100);
+  const pathFilter = normalizePath(url.searchParams.get("path"));
+
+  const whereParts = [];
+  const bindings = [];
+
+  if (status !== "all") {
+    whereParts.push("status = ?");
+    bindings.push(status);
+  }
+
+  if (pathFilter) {
+    whereParts.push("path = ?");
+    bindings.push(pathFilter);
+  }
+
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const statement = env.DB.prepare(`
+    SELECT
+      id,
+      path,
+      parent_id,
+      page_url,
+      page_title,
+      author_name,
+      author_email,
+      content,
+      likes_count,
+      status,
+      created_at,
+      updated_at
+    FROM post_comments
+    ${whereClause}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `);
+
+  const { results } = await statement.bind(...bindings, limit).all();
+
+  return (results || []).map((comment) => ({
+    id: comment.id,
+    path: comment.path,
+    parentId: comment.parent_id || null,
+    pageUrl: comment.page_url,
+    pageTitle: comment.page_title,
+    authorName: comment.author_name,
+    authorEmail: comment.author_email || "",
+    content: comment.content,
+    likesCount: Number(comment.likes_count || 0),
+    status: comment.status,
+    createdAt: formatTimestamp(comment.created_at),
+    updatedAt: formatTimestamp(comment.updated_at),
+  }));
+}
+
+async function updateCommentStatus(env, id, status) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const commentId = Number(id);
+  if (!Number.isInteger(commentId) || commentId <= 0) {
+    return null;
+  }
+
+  const result = await env.DB.prepare(`
+    UPDATE post_comments
+    SET status = ?1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?2
+  `)
+    .bind(status, commentId)
+    .run();
+
+  if (result?.meta?.affected_rows === 0) return null;
+
+  return env.DB.prepare(`
+    SELECT id, path, author_name, status, updated_at
+    FROM post_comments
+    WHERE id = ?1
+  `)
+    .bind(commentId)
+    .first();
+}
+
+async function listAdminLikes(env, url) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const limit = parsePositiveInteger(url.searchParams.get("limit"), 25, 100);
+  const { results } = await env.DB.prepare(`
+    SELECT path, count, updated_at
+    FROM post_likes
+    ORDER BY count DESC, updated_at DESC
+    LIMIT ?1
+  `)
+    .bind(limit)
+    .all();
+
+  return (results || []).map((like) => ({
+    path: like.path,
+    count: Number(like.count || 0),
+    updatedAt: formatTimestamp(like.updated_at),
+  }));
+}
+
+async function readJsonBody(request) {
+  try {
+    const payload = await request.json();
+    return payload && typeof payload === "object" ? payload : {};
+  } catch (error) {
+    return null;
+  }
+}
+
+async function handleAdmin(request, env, url) {
+  const unauthorized = requireAdminAccess(request, env);
+  if (unauthorized) return unauthorized;
+
+  if (url.pathname === "/admin/summary" && request.method === "GET") {
+    const summary = await getAdminSummary(env);
+    return jsonResponse(request, env, summary);
+  }
+
+  if (url.pathname === "/admin/comments" && request.method === "GET") {
+    const comments = await listAdminComments(env, url);
+    return jsonResponse(request, env, { comments });
+  }
+
+  if (
+    (url.pathname === "/admin/comments/approve" ||
+      url.pathname === "/admin/comments/reject") &&
+    request.method === "POST"
+  ) {
+    const payload = await readJsonBody(request);
+    if (!payload) {
+      return jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
+    }
+
+    const status = url.pathname.endsWith("/approve") ? "approved" : "rejected";
+    const comment = await updateCommentStatus(env, payload.id, status);
+    if (!comment) {
+      return jsonResponse(request, env, { error: "Comment not found." }, 404);
+    }
+
+    return jsonResponse(request, env, {
+      id: comment.id,
+      path: comment.path,
+      authorName: comment.author_name,
+      status: comment.status,
+      updatedAt: formatTimestamp(comment.updated_at),
+    });
+  }
+
+  if (url.pathname === "/admin/likes" && request.method === "GET") {
+    const likes = await listAdminLikes(env, url);
+    return jsonResponse(request, env, { likes });
+  }
+
+  if (url.pathname === "/admin/worker" && request.method === "GET") {
+    return jsonResponse(request, env, {
+      workerUrl: url.origin,
+      workerName: env.WORKER_NAME || "",
+      databaseName: env.D1_DATABASE_NAME || "",
+      allowedOrigins: String(env.ALLOWED_ORIGINS || "")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    });
+  }
+
+  return jsonResponse(request, env, { error: "Not found." }, 404);
+}
+
 /**
  * Main worker handler
  */
@@ -456,6 +717,10 @@ export default {
       }
 
       const url = new URL(request.url);
+
+      if (url.pathname.startsWith("/admin/")) {
+        return handleAdmin(request, env, url);
+      }
 
       // Route to appropriate handler
       if (url.pathname === "/likes") {
