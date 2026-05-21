@@ -127,8 +127,10 @@
     </div>
 
     <script>
+        window.THREAD_CF_WORKER = 'https://cflc-test-worker.3m1ry33t.workers.dev';
+
         window.LIKES_CONFIG = {
-            endpoint: 'https://cflc-test-worker.3m1ry33t.workers.dev/likes'
+            endpoint: `${window.THREAD_CF_WORKER}/likes`
         };
     </script>
     <script src="../../client/likes.js"></script>

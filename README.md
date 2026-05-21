@@ -1,4 +1,4 @@
-# Cloudflare Likes & Comments
+# <picture><source srcset="https://drive.google.com/uc?export=view&id=1XCmiWW-Rvx7hb4qMBtHVLd1NTv19gi1T" media="(prefers-color-scheme: dark)"><img align="left" width="50" src="https://drive.google.com/uc?export=view&id=174ewRh9Rib_S9wmywx_zg0eDP0TIrJVD" alt=""></picture> thread-cf
 
 [📘 Readme](#cloudflare-likes--comments) · [⚙️ Installation](./docs/INSTALLATION.md) · [🛠️ Management](./docs/MANAGEMENT.md) · [🚀 Deployment](./docs/DEPLOYMENT.md)
 
@@ -9,20 +9,20 @@ A lightweight, open-source engagement system for static websites. Add likes and 
 
 ## Features
 
-- 👍 **Likes System**: Track post popularity with browser-local deduplication
-- 💬 **Moderated Comments**: Comments stored as pending until approved
-- 🌍 **Global Deployment**: Cloudflare Workers deployed worldwide
-- 🔒 **Lightweight Security**: Input validation, CORS protection, spam honeypot
-- 📊 **Simple Management**: CLI tool for approving/rejecting comments
-- 🎯 **Framework Agnostic**: Works with Jekyll, Next.js, plain HTML, and other static sites
-- 📝 **Static Site Friendly**: No build step required, just add a script tag
-- 🚀 **Deploy in Minutes**: Simple setup with Cloudflare account
+- **Likes System**: Track post popularity with browser-local deduplication
+- **Moderated Comments**: Comments stored as pending until approved
+- **Global Deployment**: Cloudflare Workers deployed worldwide
+- **Lightweight Security**: Input validation, CORS protection, spam honeypot
+- **Simple Management**: CLI tool for approving/rejecting comments
+- **Framework Agnostic**: Works with Jekyll, Next.js, plain HTML, and other static sites
+- **Static Site Friendly**: No build step required, just add a script tag
+- **Deploy in Minutes**: Simple setup with Cloudflare account
 
 ## Quick Start
 
 1. Create your Cloudflare D1 database.
 2. Initialize the database schema from `src/schema.sql`.
-3. Run `npm run setup:env` locally, or `cflc setup-env` after installing the package, to create a local `.env` file.
+3. Run `npm run setup:env` locally, or `thread-cf setup-env` after installing the package, to create a local `.env` file.
 4. Copy `config/wrangler.toml.example` to `wrangler.toml`, configure your account and D1 bindings, then deploy.
 5. Add the client scripts to your site and set `window.LIKES_CONFIG` / `window.COMMENTS_CONFIG`.
 
@@ -67,7 +67,7 @@ POST request to /comments endpoint
   ↓
 Worker stores as "pending" in D1
   ↓
-You approve via CLI: cflc approve 5
+You approve via CLI: thread-cf approve 5
   ↓
 Comment visible on next page load
 ```
@@ -145,45 +145,20 @@ See [examples/](./examples/) for complete HTML with styling.
 
 For comment moderation and D1 SQL examples, see `docs/MANAGEMENT.md`.
 
-- `docs/MANAGEMENT.md` — CLI commands, pending/approved/rejected workflows, bulk operations, backups, and advanced queries
+- `docs/MANAGEMENT.md` — CLI commands, comment/like CRUD, pending/approved/rejected workflows, bulk operations, backups, and advanced queries
 
 ### Admin Dashboard
 
-See [examples/admin-dashboard/index.html](./examples/admin-dashboard/index.html) for a static dashboard that connects to protected Worker admin endpoints.
+See [dashboard/index.html](./dashboard/index.html) for the built-in static dashboard that connects to protected Worker admin endpoints.
 
 Set an admin key before using it:
 
 ```bash
+thread-cf admin-key
 wrangler secret put ADMIN_API_KEY
 ```
 
-The dashboard can review pending comments, approve or reject comments, inspect top liked paths, and view the current Worker configuration returned by `/admin/worker`.
-
-## Project Structure
-
-```
-├── src/
-│   ├── worker.js          # Cloudflare Worker implementation
-│   ├── schema.sql         # D1 database schema
-│   ├── cli.js             # Comment management CLI
-│   └── setup-env.js       # Guided .env setup CLI
-├── client/
-│   ├── likes.js           # Client-side likes script
-│   └── comments.js        # Client-side comments script
-├── examples/
-│   ├── admin-dashboard/   # Static admin dashboard
-│   ├── jekyll/            # Jekyll blog integration
-│   └── standalone-html/   # Plain HTML example
-├── config/
-│   ├── wrangler.toml.example  # Wrangler configuration template
-│   └── .env.example           # Environment variables template
-├── docs/
-│   ├── INSTALLATION.md    # Setup & installation guide
-│   ├── MANAGEMENT.md      # Comment moderation guide
-│   └── DEPLOYMENT.md      # Production deployment guide
-├── .env.example           # Root environment template
-└── LICENSE                # MIT License
-```
+The generator writes `ADMIN_API_KEY` and `ADMIN_API_KEY_EXPIRES_AT` to your local `.env`, replacing the existing key if present. The dashboard can review pending comments, approve or reject comments, inspect ranked liked/commented paths, and view the current Worker configuration returned by `/admin/worker`.
 
 ## Integration Examples
 
@@ -213,7 +188,7 @@ Simple HTML pages with likes and/or comments support—no framework needed.
 
 ### Admin Dashboard
 
-Open [examples/admin-dashboard/index.html](./examples/admin-dashboard/index.html), enter your Worker URL and `ADMIN_API_KEY`, then manage comments and likes from one page.
+Open [dashboard/index.html](./dashboard/index.html), enter your Worker URL and `ADMIN_API_KEY` when prompted, then manage comments and likes from one page. The dashboard keeps credentials only for the current browser session and prompts again if the admin session expires.
 
 ### Next.js / React
 
@@ -380,6 +355,7 @@ Response:
 ### Admin Endpoints
 
 Admin endpoints require either `Authorization: Bearer <ADMIN_API_KEY>` or `X-Admin-Key: <ADMIN_API_KEY>`.
+If `ADMIN_API_KEY_EXPIRES_AT` is set to a past ISO timestamp, admin requests are rejected.
 
 **GET** `/admin/summary`
 
@@ -401,13 +377,17 @@ Returns comments for moderation. `status` can be `pending`, `approved`, `rejecte
 { "id": 5 }
 ```
 
-**GET** `/admin/likes?limit=25`
+**GET** `/admin/likes?sort=relevance&direction=desc&path=/blog&limit=25`
 
-Returns top liked paths.
+Returns paths with likes/comment counts for the dashboard. `sort` can be `relevance`, `likes`, `comments`, or `recent`; relevance is `likes + comments * 1.5`. `direction` can be `desc` or `asc`, and `path` filters by matching post path text.
 
 **GET** `/admin/worker`
 
 Returns the current Worker URL and configured metadata. Cloudflare account-wide Worker listings should be proxied server-side rather than fetched from browser code.
+
+**GET** `/admin/audit-logs?limit=25`
+
+Returns recent protected dashboard activity. Audit entries include action, method, path, response status, client IP, user agent, timestamp, sanitized details, and a short admin-key fingerprint. Raw admin keys and request bodies are not stored.
 
 **GET** `/comments/like?commentId=123`
 
@@ -455,6 +435,23 @@ CREATE INDEX post_comments_path_status_created_idx
   ON post_comments (path, status, created_at);
 ```
 
+### admin_audit_logs
+
+```sql
+CREATE TABLE admin_audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  action TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  status INTEGER NOT NULL,
+  admin_key_fingerprint TEXT,
+  client_ip TEXT,
+  user_agent TEXT,
+  details TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 ## Configuration
 
 ### Required
@@ -472,12 +469,12 @@ CREATE INDEX post_comments_path_status_created_idx
 
 ### Built-in Protections
 
-- ✅ CORS validation: Only requests from allowed origins accepted
-- ✅ Input validation: Path, text, email checks
-- ✅ Comment spam honeypot: Website field silently rejects (bot pattern)
-- ✅ Email validation: Basic format checking
-- ✅ Content limits: Max lengths prevent abuse
-- ✅ Comment moderation: All comments require approval
+- **CORS validation:** Only requests from allowed origins accepted
+- **Input validation:** Path, text, email checks
+- **Comment spam honeypot:** Website field silently rejects (bot pattern)
+- **Email validation:** Basic format checking
+- **Content limits:** Max lengths prevent abuse
+- **Comment moderation:** All comments require approval
 
 ### Recommendations
 
@@ -486,14 +483,6 @@ CREATE INDEX post_comments_path_status_created_idx
 - Monitor pending comments regularly
 - Use Cloudflare rate limiting for high-traffic sites
 - Archive/delete old rejected comments
-
-## Performance
-
-- Like counts cached in D1 with index optimization
-- Comments query uses indexed path + status lookup
-- Global Cloudflare distribution for low latency
-- Browser localStorage prevents duplicate like requests
-- No external dependencies in client scripts
 
 ## Limitations
 
@@ -563,33 +552,16 @@ Status messages:
 
 ## Contributing
 
-Contributions welcome! Areas for enhancement:
-
-- [ ] Admin dashboard for comment moderation
-- [ ] Email notifications for pending comments
-- [ ] Comment threading/replies
-- [ ] Rate limiting in worker
-- [ ] Analytics dashboard
-- [ ] More client examples (Vue, Svelte, etc.)
+Contributions are welcome! Thank you for improving thread-cf
 
 ## License
 
 MIT - See [LICENSE](./LICENSE) for details
-
-## Support
-
-- 📖 [Installation Guide](./docs/INSTALLATION.md)
-- 📝 [Management Guide](./docs/MANAGEMENT.md)  
-- 🚀 [Deployment Guide](./docs/DEPLOYMENT.md)
-- 🔗 [Cloudflare Workers Docs](https://developers.cloudflare.com/workers/)
-- 💾 [D1 Documentation](https://developers.cloudflare.com/d1/)
 
 ## Inspiration
 
 This project was inspired by and built from the implementation in [3M1RY33T/3M1RY33T.github.io](https://github.com/3M1RY33T/3M1RY33T.github.io).
 
 ---
-
-**Made with ❤️ for static sites everywhere.**
 
 Questions? Start with the [Installation Guide](./docs/INSTALLATION.md) or check [examples/](./examples/).

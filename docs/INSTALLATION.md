@@ -42,7 +42,7 @@ npm run setup:env
 If you installed the package globally, use:
 
 ```bash
-cflc setup-env
+thread-cf setup-env
 ```
 
 The setup command walks through Cloudflare account details, D1 database values, Worker URLs, CORS origins, and client endpoint URLs. It writes `.env`, which is ignored by Git.
@@ -130,7 +130,7 @@ npm run setup:env
 Or, after installing the package globally:
 
 ```bash
-cflc setup-env
+thread-cf setup-env
 ```
 
 Or copy the template manually:
@@ -233,10 +233,13 @@ ALLOWED_ORIGINS=*
 Optional secret for the admin dashboard and protected admin endpoints.
 
 ```bash
+thread-cf admin-key
 wrangler secret put ADMIN_API_KEY
 ```
 
-The static dashboard sends this value as a bearer token when calling `/admin/*` endpoints. Do not store it in `wrangler.toml` or commit it to the repository.
+The generator writes a secure `ADMIN_API_KEY` to `.env`, replacing the old value or creating it if needed. It also lets you choose an expiration and writes `ADMIN_API_KEY_EXPIRES_AT`; an empty value means the key never expires.
+
+The static dashboard sends this value as a bearer token when calling `/admin/*` endpoints. Do not store the key in `wrangler.toml` or commit it to the repository.
 
 #### D1 Database
 

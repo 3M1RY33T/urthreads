@@ -281,8 +281,10 @@
     </div>
 
     <script>
+        window.THREAD_CF_WORKER = 'https://cflc-test-worker.3m1ry33t.workers.dev';
+
         window.COMMENTS_CONFIG = {
-            endpoint: 'https://cflc-test-worker.3m1ry33t.workers.dev/comments'
+            endpoint: `${window.THREAD_CF_WORKER}/comments`
         };
     </script>
     <script src="../../client/comments.js"></script>

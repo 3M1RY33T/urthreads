@@ -51,5 +51,7 @@ test("builds env content with derived client endpoints", () => {
   assert.ok(content.includes("LIKES_ENDPOINT=https://worker.example.workers.dev/likes"));
   assert.ok(content.includes("COMMENTS_ENDPOINT=https://worker.example.workers.dev/comments"));
   assert.ok(content.includes("ALLOWED_ORIGINS_PROD=https://example.com"));
+  assert.ok(content.includes("ADMIN_API_KEY="));
+  assert.ok(content.includes("ADMIN_API_KEY_EXPIRES_AT="));
   assert.ok(content.includes("MAX_COMMENTS_PER_POST=50"));
 });

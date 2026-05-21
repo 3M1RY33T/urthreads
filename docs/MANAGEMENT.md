@@ -7,22 +7,27 @@ Comments are stored with a `status` field that controls visibility:
 - `approved`: Visible to public
 - `rejected`: Rejected and hidden
 
-This guide shows how to manage comments using the `cflc` CLI, Wrangler CLI, and D1.
+This guide shows how to manage comments using the `thread-cf` CLI, Wrangler CLI, and D1.
 
 ## Admin Dashboard
 
-The static dashboard in `examples/admin-dashboard/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/rejected comments, top liked paths, and Worker configuration metadata.
+The built-in static dashboard in `dashboard/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/rejected comments, ranked liked/commented paths, and Worker configuration metadata.
 
 Create an admin secret before using it:
 
 ```bash
+thread-cf admin-key
 wrangler secret put ADMIN_API_KEY
 ```
 
-Then open the dashboard and enter:
+`thread-cf admin-key` generates a secure key, updates `ADMIN_API_KEY` in `.env`, and lets you choose an expiration. Expiring keys are written to `ADMIN_API_KEY_EXPIRES_AT` as an ISO timestamp; empty means never expires.
+
+Then open the dashboard. It prompts once per browser session for:
 
 - Worker URL: `https://your-worker.workers.dev`
 - Admin key: the value you set for `ADMIN_API_KEY`
+
+If the admin key expires or the session is cleared, the dashboard prompts again.
 
 The dashboard uses these protected endpoints:
 
@@ -30,10 +35,13 @@ The dashboard uses these protected endpoints:
 - `GET /admin/comments?status=pending&limit=50`
 - `POST /admin/comments/approve`
 - `POST /admin/comments/reject`
-- `GET /admin/likes?limit=25`
+- `GET /admin/likes?sort=relevance&direction=desc&path=/blog&limit=25`
 - `GET /admin/worker`
+- `GET /admin/audit-logs?limit=25`
 
 Do not embed Cloudflare account API tokens in the dashboard. If you later want account-wide Worker listings, add a protected server-side proxy endpoint.
+
+Admin dashboard activity is written to the `admin_audit_logs` D1 table. Logs store action, method, route, response status, client IP, user agent, timestamp, sanitized details, and a short SHA-256 fingerprint of the presented admin key. Raw admin keys and request bodies are not stored.
 
 ## CLI Tool (Recommended)
 
@@ -41,22 +49,22 @@ Use the included CLI tool for easy comment management:
 
 ```bash
 # List all pending comments
-D1_DATABASE_NAME=likes-and-comments cflc pending
+D1_DATABASE_NAME=likes-and-comments thread-cf pending
 
 # Approve comment #5
-D1_DATABASE_NAME=likes-and-comments cflc approve 5
+D1_DATABASE_NAME=likes-and-comments thread-cf approve 5
 
 # Reject comment #3
-D1_DATABASE_NAME=likes-and-comments cflc reject 3
+D1_DATABASE_NAME=likes-and-comments thread-cf reject 3
 
 # List all approved comments for a post
-D1_DATABASE_NAME=likes-and-comments cflc list-approved /blog/my-post
+D1_DATABASE_NAME=likes-and-comments thread-cf list-approved /blog/my-post
 
 # Show database statistics
-D1_DATABASE_NAME=likes-and-comments cflc stats
+D1_DATABASE_NAME=likes-and-comments thread-cf stats
 
 # Run a database health check
-D1_DATABASE_NAME=likes-and-comments cflc health
+D1_DATABASE_NAME=likes-and-comments thread-cf health
 ```
 
 Or set the environment variable permanently:
@@ -65,9 +73,73 @@ Or set the environment variable permanently:
 export D1_DATABASE_NAME=likes-and-comments
 
 # Now use without the prefix:
-cflc pending
-cflc approve 5
-cflc reject 3
+thread-cf pending
+thread-cf approve 5
+thread-cf reject 3
+```
+
+By default, CRUD commands print the Wrangler SQL command they will run. Add `--execute` or `--run` to execute through Wrangler immediately.
+
+## Comment CRUD
+
+```bash
+# Create a pending comment
+D1_DATABASE_NAME=likes-and-comments thread-cf create-comment \
+  /blog/my-post \
+  https://example.com/blog/my-post \
+  "My Post" \
+  "Ada" \
+  "Great post!" \
+  ada@example.com
+
+# List comments by status, optionally scoped to a path
+D1_DATABASE_NAME=likes-and-comments thread-cf list-comments pending
+D1_DATABASE_NAME=likes-and-comments thread-cf list-comments approved /blog/my-post
+
+# Read one full comment row
+D1_DATABASE_NAME=likes-and-comments thread-cf get-comment 5
+
+# Update comment content
+D1_DATABASE_NAME=likes-and-comments thread-cf update-comment 5 "Updated text"
+
+# Change comment status
+D1_DATABASE_NAME=likes-and-comments thread-cf set-comment-status 5 approved
+
+# Reset likes on one comment
+D1_DATABASE_NAME=likes-and-comments thread-cf reset-comment-likes 5
+
+# Delete a comment
+D1_DATABASE_NAME=likes-and-comments thread-cf delete-comment 5
+```
+
+Execute immediately:
+
+```bash
+D1_DATABASE_NAME=likes-and-comments thread-cf set-comment-status 5 approved --execute
+```
+
+## Like CRUD
+
+```bash
+# List top liked paths
+D1_DATABASE_NAME=likes-and-comments thread-cf list-likes
+D1_DATABASE_NAME=likes-and-comments thread-cf list-likes 100
+
+# Read likes for one path
+D1_DATABASE_NAME=likes-and-comments thread-cf get-like /blog/my-post
+
+# Create or update likes for one path
+D1_DATABASE_NAME=likes-and-comments thread-cf set-like /blog/my-post 10
+
+# Increment likes for one path
+D1_DATABASE_NAME=likes-and-comments thread-cf increment-like /blog/my-post
+D1_DATABASE_NAME=likes-and-comments thread-cf increment-like /blog/my-post 5
+
+# Delete likes for one path
+D1_DATABASE_NAME=likes-and-comments thread-cf delete-like /blog/my-post
+
+# Delete all path likes
+D1_DATABASE_NAME=likes-and-comments thread-cf reset-likes
 ```
 
 ## Manual D1 Commands

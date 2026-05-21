@@ -1,5 +1,6 @@
 name = "likes-and-comments-worker"
-type = "service"
+main = "src/worker.js"
+compatibility_date = "2026-05-20"
 account_id = "your-account-id"
 workers_dev = true
 
@@ -19,24 +20,26 @@ binding = "DB"
 database_name = "likes-and-comments-prod"
 database_id = "00000000-0000-0000-0000-000000000000"  # Replace with production D1 ID
 
-[env.staging.d1_databases]
+[[env.staging.d1_databases]]
 binding = "DB"
 database_name = "likes-and-comments-staging"
 database_id = "00000000-0000-0000-0000-000000000000"  # Replace with staging D1 ID
 
 [vars]
 ALLOWED_ORIGINS = "https://example.com"
+WORKER_NAME = "likes-and-comments-worker"
+D1_DATABASE_NAME = "likes-and-comments"
+# Optional: ISO timestamp. Empty means the admin key never expires.
+ADMIN_API_KEY_EXPIRES_AT = ""
 
 [env.production.vars]
 ALLOWED_ORIGINS = "https://example.com"
+WORKER_NAME = "likes-and-comments-worker-prod"
+D1_DATABASE_NAME = "likes-and-comments-prod"
+ADMIN_API_KEY_EXPIRES_AT = ""
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://staging.example.com,http://localhost:3000"
-
-[build]
-command = "npm install"
-cwd = "./"
-
-[build.upload]
-format = "modules"
-main = "./src/worker.js"
+WORKER_NAME = "likes-and-comments-worker-staging"
+D1_DATABASE_NAME = "likes-and-comments-staging"
+ADMIN_API_KEY_EXPIRES_AT = ""

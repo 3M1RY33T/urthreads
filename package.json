@@ -1,5 +1,5 @@
 {
-  "name": "cflc",
+  "name": "thread-cf",
   "version": "1.0.0",
   "description": "A Cloudflare Workers demo for likes and comments with D1 support.",
   "license": "MIT",
@@ -12,12 +12,13 @@
     "static-site"
   ],
   "bin": {
-    "cflc": "./src/cflc.js"
+    "thread-cf": "./src/thread-cf.js"
   },
   "files": [
     ".env.example",
     "client/",
     "config/",
+    "dashboard/",
     "docs/",
     "examples/",
     "src/",
@@ -28,7 +29,7 @@
     "node": ">=16"
   },
   "scripts": {
-    "setup:env": "node src/cflc.js setup-env",
+    "setup:env": "node src/thread-cf.js setup-env",
     "test": "node --test"
   }
 }

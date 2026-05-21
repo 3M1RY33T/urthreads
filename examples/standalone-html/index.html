@@ -460,20 +460,19 @@
         </section>
     </div>
 
-    <!-- Load Likes Feature -->
+    <!-- Configure your Worker origin once, then derive feature endpoints. -->
     <script>
+        window.THREAD_CF_WORKER = 'https://cflc-test-worker.3m1ry33t.workers.dev';
+
         window.LIKES_CONFIG = {
-            endpoint: 'https://cflc-test-worker.3m1ry33t.workers.dev/likes'
+            endpoint: `${window.THREAD_CF_WORKER}/likes`
+        };
+
+        window.COMMENTS_CONFIG = {
+            endpoint: `${window.THREAD_CF_WORKER}/comments`
         };
     </script>
     <script src="../../client/likes.js"></script>
-
-    <!-- Load Comments Feature -->
-    <script>
-        window.COMMENTS_CONFIG = {
-            endpoint: 'https://cflc-test-worker.3m1ry33t.workers.dev/comments'
-        };
-    </script>
     <script src="../../client/comments.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker for Likes and Comments
+ * Cloudflare Worker for Threads
  * 
  * This worker handles POST likes and comments using Cloudflare D1 database.
  * It provides a lightweight engagement API for static websites.
@@ -9,6 +9,8 @@
  * 
  * Required environment variables:
  * - ALLOWED_ORIGINS: Comma-separated list of allowed origins (or "*" for all)
+ * - ADMIN_API_KEY: Optional bearer key for protected admin endpoints
+ * - ADMIN_API_KEY_EXPIRES_AT: Optional ISO timestamp for admin key expiry
  */
 
 const jsonHeaders = {
@@ -113,22 +115,129 @@ function parsePositiveInteger(value, fallback, max) {
   return Math.min(number, max);
 }
 
-function hasAdminAccess(request, env) {
-  const expectedKey = String(env.ADMIN_API_KEY || "").trim();
-  if (!expectedKey) return false;
+function normalizePathSearch(value) {
+  return String(value || "").trim().slice(0, 500);
+}
 
+function escapeSqlLike(value) {
+  return String(value || "").replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function isAdminKeyExpired(env, now = Date.now()) {
+  const expiresAt = String(env.ADMIN_API_KEY_EXPIRES_AT || "").trim();
+  const normalized = expiresAt.toLowerCase();
+
+  if (!expiresAt || normalized === "never" || normalized === "none") {
+    return false;
+  }
+
+  const timestamp = Date.parse(expiresAt);
+  if (Number.isNaN(timestamp)) {
+    return true;
+  }
+
+  return timestamp <= now;
+}
+
+function getAdminCredential(request) {
   const authorization = request.headers.get("Authorization") || "";
   const bearerToken = authorization.startsWith("Bearer ")
     ? authorization.slice("Bearer ".length).trim()
     : "";
   const headerToken = request.headers.get("X-Admin-Key") || "";
 
-  return bearerToken === expectedKey || headerToken === expectedKey;
+  return bearerToken || headerToken;
 }
 
-function requireAdminAccess(request, env) {
-  if (hasAdminAccess(request, env)) return null;
-  return jsonResponse(request, env, { error: "Admin access is required." }, 401);
+async function fingerprintCredential(value) {
+  const credential = String(value || "");
+  if (!credential || !globalThis.crypto?.subtle) return "";
+
+  const data = new TextEncoder().encode(credential);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .slice(0, 8)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function getAdminAccess(request, env) {
+  const expectedKey = String(env.ADMIN_API_KEY || "").trim();
+  const credential = getAdminCredential(request);
+  const fingerprint = await fingerprintCredential(credential);
+  if (!expectedKey) return { allowed: false, fingerprint };
+  if (isAdminKeyExpired(env)) return { allowed: false, fingerprint };
+
+  return {
+    allowed: credential === expectedKey,
+    fingerprint,
+  };
+}
+
+function getClientIp(request) {
+  return String(
+    request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    ""
+  )
+    .split(",")[0]
+    .trim()
+    .slice(0, 128);
+}
+
+function getUserAgent(request) {
+  return String(request.headers.get("User-Agent") || "").slice(0, 500);
+}
+
+function safeJsonDetails(details) {
+  if (!details || typeof details !== "object") return "";
+  try {
+    return JSON.stringify(details).slice(0, 2000);
+  } catch (error) {
+    return "";
+  }
+}
+
+function parseAuditDetails(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function recordAdminAuditLog(env, request, url, event) {
+  if (!env.DB) return;
+
+  try {
+    await env.DB.prepare(`
+      INSERT INTO admin_audit_logs (
+        action,
+        method,
+        path,
+        status,
+        admin_key_fingerprint,
+        client_ip,
+        user_agent,
+        details
+      )
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+    `)
+      .bind(
+        event.action,
+        request.method,
+        `${url.pathname}${url.search}`,
+        Number(event.status || 0),
+        event.fingerprint || "",
+        getClientIp(request),
+        getUserAgent(request),
+        safeJsonDetails(event.details)
+      )
+      .run();
+  } catch (error) {
+    console.error("Unable to record admin audit log:", error);
+  }
 }
 
 /**
@@ -545,23 +654,60 @@ async function listAdminComments(env, url) {
 
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
   const statement = env.DB.prepare(`
+    WITH RECURSIVE
+    matched_comments AS (
+      SELECT id
+      FROM post_comments
+      ${whereClause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    ),
+    ancestor_comments AS (
+      SELECT c.id, c.parent_id
+      FROM post_comments c
+      INNER JOIN matched_comments m ON m.id = c.id
+      UNION
+      SELECT parent.id, parent.parent_id
+      FROM post_comments parent
+      INNER JOIN ancestor_comments child ON child.parent_id = parent.id
+    ),
+    thread_roots AS (
+      SELECT id
+      FROM ancestor_comments
+      WHERE parent_id IS NULL
+    ),
+    thread_comments AS (
+      SELECT c.id, c.parent_id
+      FROM post_comments c
+      INNER JOIN thread_roots r ON r.id = c.id
+      UNION
+      SELECT child.id, child.parent_id
+      FROM post_comments child
+      INNER JOIN thread_comments parent ON child.parent_id = parent.id
+    )
     SELECT
-      id,
-      path,
-      parent_id,
-      page_url,
-      page_title,
-      author_name,
-      author_email,
-      content,
-      likes_count,
-      status,
-      created_at,
-      updated_at
-    FROM post_comments
-    ${whereClause}
-    ORDER BY created_at DESC, id DESC
-    LIMIT ?
+      c.id,
+      c.path,
+      c.parent_id,
+      c.page_url,
+      c.page_title,
+      c.author_name,
+      c.author_email,
+      c.content,
+      c.likes_count,
+      c.status,
+      c.created_at,
+      c.updated_at,
+      parent.author_name as parent_author_name,
+      parent.content as parent_content
+    FROM post_comments c
+    LEFT JOIN post_comments parent ON parent.id = c.parent_id
+    WHERE c.id IN (
+      SELECT id FROM thread_comments
+      UNION
+      SELECT id FROM matched_comments
+    )
+    ORDER BY c.created_at DESC, c.id DESC
   `);
 
   const { results } = await statement.bind(...bindings, limit).all();
@@ -570,6 +716,8 @@ async function listAdminComments(env, url) {
     id: comment.id,
     path: comment.path,
     parentId: comment.parent_id || null,
+    parentAuthorName: comment.parent_author_name || "",
+    parentContent: comment.parent_content || "",
     pageUrl: comment.page_url,
     pageTitle: comment.page_title,
     authorName: comment.author_name,
@@ -618,19 +766,116 @@ async function listAdminLikes(env, url) {
   }
 
   const limit = parsePositiveInteger(url.searchParams.get("limit"), 25, 100);
+  const allowedSorts = new Set(["relevance", "likes", "commentLikes", "comments", "recent"]);
+  const sort = allowedSorts.has(url.searchParams.get("sort"))
+    ? url.searchParams.get("sort")
+    : "relevance";
+  const direction = url.searchParams.get("direction") === "asc" ? "ASC" : "DESC";
+  const pathSearch = normalizePathSearch(url.searchParams.get("path"));
+  const bindings = [];
+
+  const sortExpressions = {
+    relevance: "relevance_score",
+    likes: "like_count",
+    commentLikes: "comment_like_count",
+    comments: "comment_count",
+    recent: "last_activity_at",
+  };
+  const whereClause = pathSearch ? "WHERE p.path LIKE ? ESCAPE '\\'" : "";
+
+  if (pathSearch) {
+    bindings.push(`%${escapeSqlLike(pathSearch)}%`);
+  }
+  bindings.push(limit);
+
   const { results } = await env.DB.prepare(`
-    SELECT path, count, updated_at
-    FROM post_likes
-    ORDER BY count DESC, updated_at DESC
-    LIMIT ?1
+    WITH paths AS (
+      SELECT path FROM post_likes
+      UNION
+      SELECT path FROM post_comments
+    ),
+    comment_counts AS (
+      SELECT
+        path,
+        COUNT(*) as comment_count,
+        COALESCE(SUM(likes_count), 0) as comment_like_count,
+        MAX(updated_at) as last_comment_at
+      FROM post_comments
+      GROUP BY path
+    )
+    SELECT
+      p.path,
+      COALESCE(l.count, 0) as like_count,
+      COALESCE(c.comment_count, 0) as comment_count,
+      COALESCE(c.comment_like_count, 0) as comment_like_count,
+      (COALESCE(l.count, 0) + COALESCE(c.comment_like_count, 0) + (COALESCE(c.comment_count, 0) * 1.5)) as relevance_score,
+      CASE
+        WHEN l.updated_at IS NULL THEN c.last_comment_at
+        WHEN c.last_comment_at IS NULL THEN l.updated_at
+        WHEN l.updated_at >= c.last_comment_at THEN l.updated_at
+        ELSE c.last_comment_at
+      END as last_activity_at
+    FROM paths p
+    LEFT JOIN post_likes l ON l.path = p.path
+    LEFT JOIN comment_counts c ON c.path = p.path
+    ${whereClause}
+    ORDER BY ${sortExpressions[sort]} ${direction}, p.path ASC
+    LIMIT ?
   `)
-    .bind(limit)
+    .bind(...bindings)
     .all();
 
   return (results || []).map((like) => ({
     path: like.path,
-    count: Number(like.count || 0),
-    updatedAt: formatTimestamp(like.updated_at),
+    count: Number(like.like_count || 0),
+    commentLikeCount: Number(like.comment_like_count || 0),
+    commentCount: Number(like.comment_count || 0),
+    relevanceScore: Number(like.relevance_score || 0),
+    updatedAt: formatTimestamp(like.last_activity_at),
+  }));
+}
+
+async function listAdminAuditLogs(env, url) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const limit = parsePositiveInteger(url.searchParams.get("limit"), 50, 100);
+  const action = String(url.searchParams.get("action") || "").trim().slice(0, 120);
+  const whereClause = action ? "WHERE action = ?1" : "";
+  const bindings = action ? [action, limit] : [limit];
+
+  const { results } = await env.DB.prepare(`
+    SELECT
+      id,
+      action,
+      method,
+      path,
+      status,
+      admin_key_fingerprint,
+      client_ip,
+      user_agent,
+      details,
+      created_at
+    FROM admin_audit_logs
+    ${whereClause}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${action ? "?2" : "?1"}
+  `)
+    .bind(...bindings)
+    .all();
+
+  return (results || []).map((log) => ({
+    id: log.id,
+    action: log.action,
+    method: log.method,
+    path: log.path,
+    status: Number(log.status || 0),
+    adminKeyFingerprint: log.admin_key_fingerprint || "",
+    clientIp: log.client_ip || "",
+    userAgent: log.user_agent || "",
+    details: parseAuditDetails(log.details),
+    createdAt: formatTimestamp(log.created_at),
   }));
 }
 
@@ -644,62 +889,112 @@ async function readJsonBody(request) {
 }
 
 async function handleAdmin(request, env, url) {
-  const unauthorized = requireAdminAccess(request, env);
-  if (unauthorized) return unauthorized;
+  const access = await getAdminAccess(request, env);
+  if (!access.allowed) {
+    const response = jsonResponse(request, env, { error: "Admin access is required." }, 401);
+    await recordAdminAuditLog(env, request, url, {
+      action: "admin.auth_failed",
+      status: response.status,
+      fingerprint: access.fingerprint,
+    });
+    return response;
+  }
+
+  let auditAction = "admin.not_found";
+  let auditDetails = {};
+  let response;
 
   if (url.pathname === "/admin/summary" && request.method === "GET") {
     const summary = await getAdminSummary(env);
-    return jsonResponse(request, env, summary);
-  }
-
-  if (url.pathname === "/admin/comments" && request.method === "GET") {
+    auditAction = "admin.summary.read";
+    response = jsonResponse(request, env, summary);
+  } else if (url.pathname === "/admin/comments" && request.method === "GET") {
     const comments = await listAdminComments(env, url);
-    return jsonResponse(request, env, { comments });
-  }
-
-  if (
+    auditAction = "admin.comments.list";
+    auditDetails = {
+      status: url.searchParams.get("status") || "pending",
+      limit: url.searchParams.get("limit") || "50",
+      path: normalizePath(url.searchParams.get("path")) || "",
+    };
+    response = jsonResponse(request, env, { comments });
+  } else if (
     (url.pathname === "/admin/comments/approve" ||
       url.pathname === "/admin/comments/reject") &&
     request.method === "POST"
   ) {
     const payload = await readJsonBody(request);
     if (!payload) {
-      return jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
+      auditAction = "admin.comments.update_failed";
+      auditDetails = { reason: "invalid_json" };
+      response = jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
+    } else {
+      const status = url.pathname.endsWith("/approve") ? "approved" : "rejected";
+      const comment = await updateCommentStatus(env, payload.id, status);
+      auditAction = status === "approved"
+        ? "admin.comments.approve"
+        : "admin.comments.reject";
+      auditDetails = {
+        commentId: Number(payload.id || 0),
+        status,
+        path: comment?.path || "",
+      };
+      if (!comment) {
+        response = jsonResponse(request, env, { error: "Comment not found." }, 404);
+      } else {
+        response = jsonResponse(request, env, {
+          id: comment.id,
+          path: comment.path,
+          authorName: comment.author_name,
+          status: comment.status,
+          updatedAt: formatTimestamp(comment.updated_at),
+        });
+      }
     }
-
-    const status = url.pathname.endsWith("/approve") ? "approved" : "rejected";
-    const comment = await updateCommentStatus(env, payload.id, status);
-    if (!comment) {
-      return jsonResponse(request, env, { error: "Comment not found." }, 404);
-    }
-
-    return jsonResponse(request, env, {
-      id: comment.id,
-      path: comment.path,
-      authorName: comment.author_name,
-      status: comment.status,
-      updatedAt: formatTimestamp(comment.updated_at),
-    });
-  }
-
-  if (url.pathname === "/admin/likes" && request.method === "GET") {
+  } else if (url.pathname === "/admin/likes" && request.method === "GET") {
     const likes = await listAdminLikes(env, url);
-    return jsonResponse(request, env, { likes });
-  }
+    auditAction = "admin.likes.list";
+    auditDetails = {
+      sort: url.searchParams.get("sort") || "relevance",
+      direction: url.searchParams.get("direction") || "desc",
+      limit: url.searchParams.get("limit") || "25",
+      path: normalizePathSearch(url.searchParams.get("path")),
+    };
+    response = jsonResponse(request, env, { likes });
+  } else if (url.pathname === "/admin/audit-logs" && request.method === "GET") {
+    const auditLogs = await listAdminAuditLogs(env, url);
+    auditAction = "admin.audit_logs.list";
+    auditDetails = {
+      limit: url.searchParams.get("limit") || "50",
+      action: String(url.searchParams.get("action") || "").slice(0, 120),
+    };
+    response = jsonResponse(request, env, { auditLogs });
+  } else if (url.pathname === "/admin/worker" && request.method === "GET") {
+    const inferredWorkerName = url.hostname.endsWith(".workers.dev")
+      ? url.hostname.split(".")[0]
+      : "";
 
-  if (url.pathname === "/admin/worker" && request.method === "GET") {
-    return jsonResponse(request, env, {
+    auditAction = "admin.worker.read";
+    response = jsonResponse(request, env, {
       workerUrl: url.origin,
-      workerName: env.WORKER_NAME || "",
+      workerName: env.WORKER_NAME || inferredWorkerName,
       databaseName: env.D1_DATABASE_NAME || "",
+      adminKeyExpiresAt: String(env.ADMIN_API_KEY_EXPIRES_AT || "").trim(),
       allowedOrigins: String(env.ALLOWED_ORIGINS || "")
         .split(",")
         .map((origin) => origin.trim())
         .filter(Boolean),
     });
+  } else {
+    response = jsonResponse(request, env, { error: "Not found." }, 404);
   }
 
-  return jsonResponse(request, env, { error: "Not found." }, 404);
+  await recordAdminAuditLog(env, request, url, {
+    action: auditAction,
+    status: response.status,
+    fingerprint: access.fingerprint,
+    details: auditDetails,
+  });
+  return response;
 }
 
 /**

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>thread-cf</title>
+  <link rel="stylesheet" href="styles.css?v=50" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <h1>Threads Dashboard</h1>
+          <p>Admin Threads-CF dashboard</p>
+        </div>
+        <button type="button" class="session-card" data-session-action data-session-card data-connection="disconnected" aria-label="Open session settings">
+          <span class="session-card-label">
+            <span class="connection-indicator" aria-hidden="true"></span>
+            Session
+          </span>
+          <strong data-session-worker>Not connected</strong>
+          <div class="status-line" data-status></div>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h2>Overview</h2>
+        <div class="topbar-actions">
+          <button type="button" class="theme-switch" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
+            <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1111.21 3a7 7 0 109.79 9.79z"></path>
+            </svg>
+          </button>
+          <button type="button" class="icon-button" data-refresh aria-label="Refresh" title="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 11-2.64-6.36"></path>
+              <path d="M21 3v6h-6"></path>
+            </svg>
+          </button>
+          <a class="icon-button" data-cloudflare-link href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer" aria-label="Open Cloudflare dashboard" title="Open Cloudflare dashboard">
+            <img src="../assets/svg/cloudflare.svg" alt="" aria-hidden="true" />
+          </a>
+        </div>
+      </header>
+
+      <section class="stats-grid" aria-label="Summary">
+        <div class="stat">
+          <div class="stat-copy">
+            <span>Page likes</span>
+            <strong data-page-likes>0</strong>
+          </div>
+          <svg class="stat-icon page-likes-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path>
+            <path d="M14 2v6h6"></path>
+            <path d="M8.5 14.5l3.5 3.25 3.5-3.25a2.1 2.1 0 00-3-2.95l-.5.5-.5-.5a2.1 2.1 0 00-3 2.95z"></path>
+          </svg>
+        </div>
+        <div class="stat">
+          <div class="stat-copy">
+            <span>Comment likes</span>
+            <strong data-comment-likes>0</strong>
+          </div>
+          <svg class="stat-icon comment-likes-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4z"></path>
+            <path d="M8.5 10.5l3.5 3.25 3.5-3.25a2.1 2.1 0 00-3-2.95l-.5.5-.5-.5a2.1 2.1 0 00-3 2.95z"></path>
+          </svg>
+        </div>
+        <div class="stat">
+          <div class="stat-copy">
+            <span>Pending</span>
+            <strong data-pending-comments>0</strong>
+          </div>
+          <svg class="stat-icon pending-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 7v5l3 2"></path>
+          </svg>
+        </div>
+        <div class="stat">
+          <div class="stat-copy">
+            <span>Approved</span>
+            <strong data-approved-comments>0</strong>
+          </div>
+          <svg class="stat-icon approved-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M8 12l2.5 2.5L16 9"></path>
+          </svg>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <section class="panel" aria-labelledby="comments-heading" data-panel>
+          <div class="panel-header">
+            <div class="panel-title-row">
+              <h3 id="comments-heading">Comments</h3>
+            </div>
+            <div class="panel-header-actions">
+              <div class="filters" data-collapsible-extra>
+                <select data-comment-status>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="all">All</option>
+                </select>
+                <input data-comment-path type="text" placeholder="/path" />
+                <select data-comment-limit>
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+              <button
+                class="panel-toggle"
+                type="button"
+                data-collapse-toggle
+                aria-expanded="true"
+                aria-controls="comments-panel-body"
+                aria-label="Collapse comments"
+                title="Collapse comments"
+              >
+                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="panel-body" id="comments-panel-body" data-collapsible-body>
+            <ul class="comment-list" data-comment-list></ul>
+          </div>
+        </section>
+
+        <div>
+          <section class="panel" aria-labelledby="posts-heading" data-panel>
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <h3 id="posts-heading">Posts</h3>
+              </div>
+              <div class="panel-header-actions">
+                <div class="filters likes-filters" data-collapsible-extra>
+                  <button class="icon-button rank-toggle" type="button" data-likes-direction data-direction="desc" aria-label="Most relevance first" title="Most first">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path data-likes-direction-icon d="M7 17h10"></path>
+                      <path data-likes-direction-icon d="M7 12h7"></path>
+                      <path data-likes-direction-icon d="M7 7h4"></path>
+                    </svg>
+                  </button>
+                  <select data-likes-sort>
+                    <option value="relevance" selected>Relevance</option>
+                    <option value="likes">Likes</option>
+                    <option value="commentLikes">Comment likes</option>
+                    <option value="comments">Comments</option>
+                    <option value="recent">Recent</option>
+                  </select>
+                  <input data-likes-path type="text" placeholder="/path" />
+                  <select data-likes-limit>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                </div>
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  data-collapse-toggle
+                  aria-expanded="true"
+                  aria-controls="likes-panel-body"
+                  aria-label="Collapse likes"
+                  title="Collapse likes"
+              >
+                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6"></path>
+                </svg>
+              </button>
+              </div>
+            </div>
+            <div class="panel-body" id="likes-panel-body" data-collapsible-body>
+              <ul class="likes-list" data-likes-list></ul>
+            </div>
+          </section>
+
+          <section class="panel panel-spaced" aria-labelledby="worker-heading" data-panel>
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <h3 id="worker-heading">Cloudflare Worker</h3>
+              </div>
+              <button
+                class="panel-toggle"
+                type="button"
+                data-collapse-toggle
+                aria-expanded="false"
+                aria-controls="worker-panel-body"
+                aria-label="Expand worker"
+                title="Expand worker"
+              >
+                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="panel-body" id="worker-panel-body" data-collapsible-body hidden>
+              <ul class="worker-list" data-worker-list></ul>
+            </div>
+          </section>
+
+          <section class="panel panel-spaced" aria-labelledby="audit-heading" data-panel>
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <h3 id="audit-heading">Activity Logs</h3>
+              </div>
+              <div class="panel-header-actions">
+                <div class="filters" data-collapsible-extra>
+                  <select data-audit-limit>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                </div>
+                <button
+                  class="panel-toggle"
+                  type="button"
+                  data-collapse-toggle
+                  aria-expanded="false"
+                  aria-controls="audit-panel-body"
+                  aria-label="Expand activity logs"
+                  title="Expand activity logs"
+                >
+                  <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 9l6 6 6-6"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="panel-body" id="audit-panel-body" data-collapsible-body hidden>
+              <ul class="audit-list" data-audit-list></ul>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="auth-overlay" data-auth-overlay hidden>
+    <form class="auth-dialog" data-auth-form role="dialog" aria-modal="true" aria-labelledby="auth-heading">
+      <button class="modal-close" type="button" data-auth-close aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6L6 18"></path>
+          <path d="M6 6l12 12"></path>
+        </svg>
+      </button>
+      <h2 id="auth-heading">Connect dashboard</h2>
+      <div class="field">
+        <label for="worker-url">Worker URL</label>
+        <input
+          id="worker-url"
+          name="workerUrl"
+          type="url"
+          placeholder="https://worker.example.workers.dev"
+          autocomplete="url"
+          required
+        />
+      </div>
+
+      <div class="field">
+        <label for="admin-key">Admin key</label>
+        <input
+          id="admin-key"
+          name="adminKey"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+      </div>
+
+      <div class="auth-actions">
+        <button class="icon-button modal-action-button danger-action" type="button" data-end-session aria-label="End session" title="End session">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"></path>
+            <path d="M16 17l5-5-5-5"></path>
+            <path d="M21 12H9"></path>
+          </svg>
+        </button>
+        <button class="icon-button modal-action-button primary-action" type="submit" aria-label="Connect" title="Connect">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6L9 17l-5-5"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="status-line" data-auth-status></div>
+    </form>
+  </div>
+
+  <div class="confirm-overlay" data-confirm-overlay hidden>
+    <form class="confirm-dialog" data-confirm-form role="dialog" aria-modal="true" aria-labelledby="confirm-heading">
+      <button class="modal-close" type="button" data-confirm-close aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6L6 18"></path>
+          <path d="M6 6l12 12"></path>
+        </svg>
+      </button>
+      <h2 id="confirm-heading">Confirm action</h2>
+      <p data-confirm-message></p>
+      <div class="confirm-actions">
+        <button class="icon-button modal-action-button neutral-action" type="button" data-confirm-cancel aria-label="Cancel" title="Cancel">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6L6 18"></path>
+            <path d="M6 6l12 12"></path>
+          </svg>
+        </button>
+        <button class="icon-button modal-action-button danger-action" type="submit" data-confirm-submit aria-label="Confirm" title="Confirm">
+          <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6L9 17l-5-5"></path>
+          </svg>
+        </button>
+      </div>
+    </form>
+  </div>
+  <script src="dashboard.js?v=30"></script>
+</body>
+</html>
