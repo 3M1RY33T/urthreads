@@ -30,6 +30,26 @@ CREATE INDEX IF NOT EXISTS post_comments_path_status_created_idx
 CREATE INDEX IF NOT EXISTS post_comments_parent_idx
   ON post_comments (parent_id);
 
+CREATE TABLE IF NOT EXISTS comment_denied_keywords (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  keyword TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS engagement_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL CHECK (event_type IN ('page_like', 'comment_like', 'comment_create')),
+  path TEXT NOT NULL,
+  comment_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS engagement_events_type_created_idx
+  ON engagement_events (event_type, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS engagement_events_path_created_idx
+  ON engagement_events (path, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS admin_audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   action TEXT NOT NULL,

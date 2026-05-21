@@ -9,6 +9,9 @@
     workerUrl: window.sessionStorage.getItem(storageKeys.workerUrl) || '',
     adminKey: window.sessionStorage.getItem(storageKeys.adminKey) || '',
     theme: window.localStorage.getItem(storageKeys.theme) || 'light',
+    statsRange: '30d',
+    statsStartDatePinned: false,
+    deniedKeywords: [],
     pendingConfirmResolve: null,
   };
 
@@ -36,9 +39,18 @@
     commentLikes: document.querySelector('[data-comment-likes]'),
     pendingComments: document.querySelector('[data-pending-comments]'),
     approvedComments: document.querySelector('[data-approved-comments]'),
+    statsChart: document.querySelector('[data-stats-chart]'),
+    statsLegend: document.querySelector('[data-stats-legend]'),
+    statsRangeButtons: document.querySelectorAll('[data-stats-range]'),
+    statsStartDate: document.querySelector('[data-stats-start-date]'),
     commentStatus: document.querySelector('[data-comment-status]'),
     commentPath: document.querySelector('[data-comment-path]'),
     commentLimit: document.querySelector('[data-comment-limit]'),
+    keywordPopoverToggle: document.querySelector('[data-keyword-popover-toggle]'),
+    keywordPopover: document.querySelector('[data-keyword-popover]'),
+    keywordPopoverForm: document.querySelector('[data-keyword-popover-form]'),
+    keywordPopoverInput: document.querySelector('[data-keyword-popover-input]'),
+    keywordPopoverList: document.querySelector('[data-keyword-popover-list]'),
     likesSort: document.querySelector('[data-likes-sort]'),
     likesDirection: document.querySelector('[data-likes-direction]'),
     likesPath: document.querySelector('[data-likes-path]'),
@@ -241,11 +253,256 @@
     list.append(item);
   }
 
+  function setKeywordPopoverOpen(open) {
+    elements.keywordPopover.hidden = !open;
+    elements.keywordPopoverToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function renderDeniedKeywordsPopover() {
+    elements.keywordPopoverList.replaceChildren();
+    if (!state.deniedKeywords.length) {
+      const item = document.createElement('li');
+      item.className = 'keyword-popover-empty';
+      item.textContent = 'No denied keywords';
+      elements.keywordPopoverList.append(item);
+      return;
+    }
+
+    state.deniedKeywords.forEach((keyword) => {
+      const item = document.createElement('li');
+      item.textContent = keyword;
+      elements.keywordPopoverList.append(item);
+    });
+  }
+
   function renderSummary(summary) {
     elements.pageLikes.textContent = String(summary.likes?.totalLikes || 0);
     elements.commentLikes.textContent = String(summary.likes?.totalCommentLikes || 0);
     elements.pendingComments.textContent = String(summary.comments?.pending || 0);
     elements.approvedComments.textContent = String(summary.comments?.approved || 0);
+  }
+
+  function renderStatsChart(stats) {
+    const points = stats.points || [];
+    const bucketUnit = stats.bucketUnit || 'day';
+    const series = [
+      { key: 'pageLikes', label: 'Page likes', color: 'var(--like-icon)' },
+      { key: 'commentLikes', label: 'Comment likes', color: 'var(--chart-comment-like)' },
+      { key: 'comments', label: 'Comments', color: 'var(--accent)' },
+      { key: 'moderationActions', label: 'Moderation', color: 'var(--pending-text)' },
+    ];
+
+    elements.statsLegend.replaceChildren();
+    series.forEach((item) => {
+      const legendItem = document.createElement('span');
+      legendItem.className = 'stats-chart-legend-item';
+      const swatch = document.createElement('span');
+      swatch.style.background = item.color;
+      legendItem.append(swatch, document.createTextNode(item.label));
+      elements.statsLegend.append(legendItem);
+    });
+
+    elements.statsChart.replaceChildren();
+    if (!points.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty-state';
+      empty.textContent = 'No trend data loaded.';
+      elements.statsChart.append(empty);
+      return;
+    }
+
+    const width = 720;
+    const height = 220;
+    const padding = { top: 18, right: 18, bottom: 34, left: 36 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const maxValue = Math.max(
+      1,
+      ...points.flatMap((point) => series.map((item) => Number(point[item.key] || 0)))
+    );
+    const xForIndex = (index) => padding.left + (
+      points.length === 1 ? chartWidth / 2 : (index / (points.length - 1)) * chartWidth
+    );
+    const yForValue = (value) => padding.top + chartHeight - ((Number(value || 0) / maxValue) * chartHeight);
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'stats-chart');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute(
+      'aria-label',
+      bucketUnit === 'hour'
+        ? 'Engagement trend for the current day'
+        : `Engagement trend for the last ${stats.rangeDays || points.length} days`
+    );
+
+    [0, 0.5, 1].forEach((ratio) => {
+      const y = padding.top + chartHeight - (chartHeight * ratio);
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('class', 'stats-chart-grid-line');
+      line.setAttribute('x1', String(padding.left));
+      line.setAttribute('x2', String(width - padding.right));
+      line.setAttribute('y1', String(y));
+      line.setAttribute('y2', String(y));
+      svg.append(line);
+
+      const label = document.createElementNS(ns, 'text');
+      label.setAttribute('class', 'stats-chart-axis-label');
+      label.setAttribute('x', String(padding.left - 10));
+      label.setAttribute('y', String(y + 4));
+      label.setAttribute('text-anchor', 'end');
+      label.textContent = String(Math.round(maxValue * ratio));
+      svg.append(label);
+    });
+
+    const labelIndexes = [0, Math.floor((points.length - 1) / 2), points.length - 1]
+      .filter((value, index, values) => values.indexOf(value) === index);
+    const formatPointLabel = (point, options = {}) => {
+      const bucketValue = point.bucket || point.day;
+      const date = new Date(bucketUnit === 'hour' ? bucketValue : `${point.day}T00:00:00Z`);
+      if (bucketUnit === 'hour') {
+        return new Intl.DateTimeFormat([], {
+          hour: 'numeric',
+          ...(options.includeDate ? { month: 'short', day: 'numeric' } : {}),
+          ...(options.includeYear ? { year: 'numeric' } : {}),
+        }).format(date);
+      }
+      return new Intl.DateTimeFormat([], {
+        month: 'short',
+        day: 'numeric',
+        ...(options.includeYear ? { year: 'numeric' } : {}),
+      }).format(date);
+    };
+    labelIndexes.forEach((index) => {
+      const label = document.createElementNS(ns, 'text');
+      label.setAttribute('class', 'stats-chart-axis-label');
+      label.setAttribute('x', String(xForIndex(index)));
+      label.setAttribute('y', String(height - 10));
+      label.setAttribute('text-anchor', index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle');
+      label.textContent = formatPointLabel(points[index]);
+      svg.append(label);
+    });
+
+    series.forEach((item) => {
+      const path = document.createElementNS(ns, 'path');
+      const d = points.map((point, index) => {
+        const command = index === 0 ? 'M' : 'L';
+        return `${command} ${xForIndex(index).toFixed(2)} ${yForValue(point[item.key]).toFixed(2)}`;
+      }).join(' ');
+      path.setAttribute('class', 'stats-chart-line');
+      path.setAttribute('d', d);
+      path.setAttribute('stroke', item.color);
+      svg.append(path);
+    });
+
+    const guide = document.createElementNS(ns, 'line');
+    guide.setAttribute('class', 'stats-chart-guide');
+    guide.setAttribute('y1', String(padding.top));
+    guide.setAttribute('y2', String(padding.top + chartHeight));
+    svg.append(guide);
+
+    const pointCircles = [];
+    series.forEach((item) => {
+      points.forEach((point, index) => {
+        const circle = document.createElementNS(ns, 'circle');
+        circle.setAttribute('class', 'stats-chart-point');
+        circle.setAttribute('data-point-index', String(index));
+        circle.setAttribute('cx', String(xForIndex(index)));
+        circle.setAttribute('cy', String(yForValue(point[item.key])));
+        circle.setAttribute('r', '4');
+        circle.setAttribute('fill', item.color);
+        svg.append(circle);
+        pointCircles.push(circle);
+      });
+    });
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'stats-chart-tooltip';
+    tooltip.hidden = true;
+
+    const clearActivePoint = () => {
+      guide.classList.remove('is-active');
+      tooltip.hidden = true;
+      pointCircles.forEach((circle) => circle.classList.remove('is-active'));
+    };
+
+    const setActivePoint = (index) => {
+      const point = points[index];
+      if (!point) return;
+      const x = xForIndex(index);
+
+      guide.setAttribute('x1', String(x));
+      guide.setAttribute('x2', String(x));
+      guide.classList.add('is-active');
+      pointCircles.forEach((circle) => {
+        circle.classList.toggle('is-active', circle.getAttribute('data-point-index') === String(index));
+      });
+
+      tooltip.replaceChildren();
+      const tooltipTitle = document.createElement('div');
+      tooltipTitle.className = 'stats-chart-tooltip-title';
+      tooltipTitle.textContent = formatPointLabel(point, { includeDate: true, includeYear: true });
+      tooltip.append(tooltipTitle);
+
+      series.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'stats-chart-tooltip-row';
+        const label = document.createElement('span');
+        const swatch = document.createElement('span');
+        swatch.className = 'stats-chart-tooltip-swatch';
+        swatch.style.background = item.color;
+        label.append(swatch, document.createTextNode(item.label));
+        const value = document.createElement('strong');
+        value.textContent = String(Number(point[item.key] || 0));
+        row.append(label, value);
+        tooltip.append(row);
+      });
+
+      tooltip.hidden = false;
+      tooltip.style.left = `${(x / width) * 100}%`;
+      tooltip.style.top = `${padding.top + 8}px`;
+      tooltip.classList.toggle('is-right-aligned', index > points.length * 0.65);
+    };
+
+    points.forEach((point, index) => {
+      const hitArea = document.createElementNS(ns, 'rect');
+      const previousX = index === 0 ? padding.left : (xForIndex(index - 1) + xForIndex(index)) / 2;
+      const nextX = index === points.length - 1
+        ? padding.left + chartWidth
+        : (xForIndex(index) + xForIndex(index + 1)) / 2;
+      hitArea.setAttribute('class', 'stats-chart-hit-area');
+      hitArea.setAttribute('x', String(previousX));
+      hitArea.setAttribute('y', String(padding.top));
+      hitArea.setAttribute('width', String(Math.max(8, nextX - previousX)));
+      hitArea.setAttribute('height', String(chartHeight));
+      hitArea.setAttribute('tabindex', '0');
+      hitArea.setAttribute(
+        'aria-label',
+        `${formatPointLabel(point, { includeDate: true, includeYear: true })}: ${series
+          .map((item) => `${item.label} ${Number(point[item.key] || 0)}`)
+          .join(', ')}`
+      );
+      hitArea.addEventListener('mouseenter', () => setActivePoint(index));
+      hitArea.addEventListener('focus', () => setActivePoint(index));
+      hitArea.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const nextIndex = Math.max(
+          0,
+          Math.min(points.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1))
+        );
+        svg.querySelector(`[data-hit-index="${nextIndex}"]`)?.focus();
+      });
+      hitArea.setAttribute('data-hit-index', String(index));
+      svg.append(hitArea);
+    });
+
+    svg.addEventListener('mouseleave', clearActivePoint);
+    svg.addEventListener('blur', (event) => {
+      if (!svg.contains(event.relatedTarget)) clearActivePoint();
+    }, true);
+
+    elements.statsChart.append(svg, tooltip);
   }
 
   function makeStatusPill(status, label = status) {
@@ -898,6 +1155,18 @@
     renderLikes(payload.likes || []);
   }
 
+  async function loadCommentSettings() {
+    const payload = await requestAdmin('/admin/comment-settings');
+    state.deniedKeywords = payload.deniedKeywords || [];
+    renderDeniedKeywordsPopover();
+    return payload;
+  }
+
+  async function loadStats() {
+    const payload = await requestAdmin(`/admin/stats?range=${encodeURIComponent(state.statsRange)}`);
+    renderStatsChart(payload);
+  }
+
   async function loadAuditLogs() {
     const params = new URLSearchParams({
       limit: elements.auditLimit.value,
@@ -932,6 +1201,22 @@
     }
   }
 
+  async function safeLoadStats() {
+    try {
+      await loadStats();
+    } catch (error) {
+      renderStatsChart({ rangeDays: 30, points: [] });
+    }
+  }
+
+  function updateStatsRangeButtons() {
+    elements.statsRangeButtons.forEach((button) => {
+      const active = button.dataset.statsRange === state.statsRange;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
   async function updateComment(id, action, destructiveLabel = '') {
     if (destructiveLabel) {
       const confirmed = await confirmCommentAction(destructiveLabel);
@@ -951,6 +1236,34 @@
     await refreshAll();
   }
 
+  async function updateCommentSettings(deniedKeywords) {
+    setStatus('Saving comment settings...');
+    const payload = await requestAdmin('/admin/comment-settings', {
+      method: 'PUT',
+      body: JSON.stringify({ deniedKeywords }),
+    });
+    state.deniedKeywords = payload.deniedKeywords || [];
+    renderDeniedKeywordsPopover();
+    setKeywordPopoverOpen(false);
+    await refreshAll();
+    setStatus('Comment settings saved.');
+    window.setTimeout(() => setStatus(''), 1800);
+  }
+
+  async function addDeniedKeywordFromPopover() {
+    const keyword = elements.keywordPopoverInput.value.trim();
+    if (!keyword) {
+      elements.keywordPopoverInput.focus();
+      return;
+    }
+
+    const nextKeywords = Array.from(new Set([...state.deniedKeywords, keyword]));
+    elements.keywordPopoverInput.value = '';
+    await updateCommentSettings(nextKeywords);
+    setKeywordPopoverOpen(true);
+    elements.keywordPopoverInput.focus();
+  }
+
   async function refreshAll() {
     if (!state.workerUrl || !state.adminKey) {
       setSessionWorker('disconnected');
@@ -964,10 +1277,18 @@
       const [summary, likes, worker] = await Promise.all([
         requestAdmin('/admin/summary'),
         loadLikes(),
-        requestAdmin('/admin/worker'),
+        requestAdmin('/admin/worker').then(async (workerPayload) => {
+          try {
+            await loadCommentSettings();
+          } catch (error) {
+            state.deniedKeywords = [];
+          }
+          return workerPayload;
+        }),
       ]);
       renderSummary(summary);
       renderWorker(worker);
+      await safeLoadStats();
       await loadComments();
       await safeLoadAuditLogs();
       setSessionWorker('connected');
@@ -1021,9 +1342,32 @@
       closeConfirmPrompt(false);
     } else if (event.key === 'Escape' && !elements.authOverlay.hidden) {
       closeAuthPrompt();
+    } else if (event.key === 'Escape' && !elements.keywordPopover.hidden) {
+      setKeywordPopoverOpen(false);
+      elements.keywordPopoverToggle.focus();
     }
   });
+  document.addEventListener('click', (event) => {
+    if (elements.keywordPopover.hidden) return;
+    if (event.target.closest('.comment-keyword-filter')) return;
+    setKeywordPopoverOpen(false);
+  });
   elements.refresh.addEventListener('click', refreshAll);
+  elements.keywordPopoverToggle.addEventListener('click', () => {
+    setKeywordPopoverOpen(elements.keywordPopoverToggle.getAttribute('aria-expanded') !== 'true');
+  });
+  elements.keywordPopoverForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await addDeniedKeywordFromPopover();
+  });
+  elements.statsRangeButtons.forEach((button) => {
+    button.setAttribute('aria-pressed', button.classList.contains('is-active') ? 'true' : 'false');
+    button.addEventListener('click', async () => {
+      state.statsRange = button.dataset.statsRange || '30d';
+      updateStatsRangeButtons();
+      await safeLoadStats();
+    });
+  });
   elements.commentStatus.addEventListener('change', safeLoadComments);
   elements.commentLimit.addEventListener('change', safeLoadComments);
   elements.commentPath.addEventListener('input', () => {
@@ -1053,7 +1397,9 @@
 
   applyTheme(state.theme);
   updateLikesDirectionLabel();
+  updateStatsRangeButtons();
   setSessionWorker();
+  renderDeniedKeywordsPopover();
 
   if (state.workerUrl && state.adminKey) {
     refreshAll();
@@ -1062,6 +1408,7 @@
     setEmpty(elements.likesList, 'No likes loaded.');
     setEmpty(elements.workerList, 'No worker loaded.');
     setEmpty(elements.auditList, 'No activity logs loaded.');
+    renderStatsChart({ rangeDays: 30, points: [] });
     showAuthPrompt();
   }
 })();

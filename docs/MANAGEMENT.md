@@ -32,9 +32,12 @@ If the admin key expires or the session is cleared, the dashboard prompts again.
 The dashboard uses these protected endpoints:
 
 - `GET /admin/summary`
+- `GET /admin/stats?range=30d`
 - `GET /admin/comments?status=pending&limit=50`
 - `POST /admin/comments/approve`
 - `POST /admin/comments/reject`
+- `GET /admin/comment-settings`
+- `PUT /admin/comment-settings`
 - `GET /admin/likes?sort=relevance&direction=desc&path=/blog&limit=25`
 - `GET /admin/worker`
 - `GET /admin/audit-logs?limit=25`
@@ -42,6 +45,8 @@ The dashboard uses these protected endpoints:
 Do not embed Cloudflare account API tokens in the dashboard. If you later want account-wide Worker listings, add a protected server-side proxy endpoint.
 
 Admin dashboard activity is written to the `admin_audit_logs` D1 table. Logs store action, method, route, response status, client IP, user agent, timestamp, sanitized details, and a short SHA-256 fingerprint of the presented admin key. Raw admin keys and request bodies are not stored.
+
+Comment settings include a denied keyword list. Matching is case-insensitive against comment text and author name. Matches are stored as rejected comments and receive a neutral pending response from the public API.
 
 ## CLI Tool (Recommended)
 

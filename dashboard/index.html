@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>thread-cf</title>
-  <link rel="stylesheet" href="styles.css?v=50" />
+  <link rel="stylesheet" href="styles.css?v=69" />
 </head>
 <body>
   <div class="app-shell">
@@ -101,14 +101,81 @@
         </div>
       </section>
 
+      <section class="panel stats-chart-panel" aria-labelledby="stats-chart-heading">
+        <div class="panel-header stats-chart-header">
+          <div class="panel-title-row">
+            <h3 id="stats-chart-heading">Engagement Trend</h3>
+          </div>
+          <div class="stats-chart-legend" data-stats-legend></div>
+        </div>
+        <div class="stats-chart-body">
+          <div class="panel-body-filters stats-chart-filter-row">
+            <div class="stats-chart-filters">
+              <input class="stats-chart-date" type="date" data-stats-start-date aria-label="Engagement trend start date" />
+              <div class="stats-chart-range" aria-label="Engagement trend range">
+                <button type="button" data-stats-range="1d">1D</button>
+                <button type="button" data-stats-range="5d">5D</button>
+                <button type="button" data-stats-range="15d">15D</button>
+                <button type="button" data-stats-range="30d" class="is-active">30D</button>
+              </div>
+            </div>
+          </div>
+          <div class="stats-chart-plot" data-stats-chart></div>
+        </div>
+      </section>
+
       <section class="content-grid">
         <section class="panel" aria-labelledby="comments-heading" data-panel>
           <div class="panel-header">
             <div class="panel-title-row">
               <h3 id="comments-heading">Comments</h3>
             </div>
-            <div class="panel-header-actions">
-              <div class="filters" data-collapsible-extra>
+            <button
+              class="panel-toggle"
+              type="button"
+              data-collapse-toggle
+              aria-expanded="true"
+              aria-controls="comments-panel-body"
+              aria-label="Collapse comments"
+              title="Collapse comments"
+            >
+              <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 9l6 6 6-6"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="panel-body" id="comments-panel-body" data-collapsible-body>
+            <div class="panel-body-filters">
+              <div class="filters comments-filters">
+                <div class="comment-keyword-filter">
+                  <button
+                    class="icon-button keyword-filter-button"
+                    type="button"
+                    data-keyword-popover-toggle
+                    aria-expanded="false"
+                    aria-controls="keyword-popover"
+                    aria-label="Show denied keywords"
+                    title="Denied keywords"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9"></circle>
+                      <path d="M5.7 5.7l12.6 12.6"></path>
+                    </svg>
+                  </button>
+                  <div class="keyword-popover" id="keyword-popover" data-keyword-popover hidden>
+                    <div class="keyword-popover-title">Denied keywords</div>
+                    <form class="keyword-popover-form" data-keyword-popover-form>
+                      <input data-keyword-popover-input type="text" placeholder="Add keyword" />
+                      <button class="icon-button keyword-popover-add" type="submit" aria-label="Add denied keyword" title="Add denied keyword">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M12 5v14"></path>
+                          <path d="M5 12h14"></path>
+                        </svg>
+                      </button>
+                    </form>
+                    <ul data-keyword-popover-list></ul>
+                  </div>
+                </div>
                 <select data-comment-status>
                   <option value="pending">Pending</option>
                   <option value="approved">Approved</option>
@@ -122,22 +189,7 @@
                   <option value="100">100</option>
                 </select>
               </div>
-              <button
-                class="panel-toggle"
-                type="button"
-                data-collapse-toggle
-                aria-expanded="true"
-                aria-controls="comments-panel-body"
-                aria-label="Collapse comments"
-                title="Collapse comments"
-              >
-                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M6 9l6 6 6-6"></path>
-                </svg>
-              </button>
             </div>
-          </div>
-          <div class="panel-body" id="comments-panel-body" data-collapsible-body>
             <ul class="comment-list" data-comment-list></ul>
           </div>
         </section>
@@ -148,8 +200,23 @@
               <div class="panel-title-row">
                 <h3 id="posts-heading">Posts</h3>
               </div>
-              <div class="panel-header-actions">
-                <div class="filters likes-filters" data-collapsible-extra>
+              <button
+                class="panel-toggle"
+                type="button"
+                data-collapse-toggle
+                aria-expanded="true"
+                aria-controls="likes-panel-body"
+                aria-label="Collapse likes"
+                title="Collapse likes"
+              >
+                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="panel-body" id="likes-panel-body" data-collapsible-body>
+              <div class="panel-body-filters">
+                <div class="filters likes-filters">
                   <button class="icon-button rank-toggle" type="button" data-likes-direction data-direction="desc" aria-label="Most relevance first" title="Most first">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path data-likes-direction-icon d="M7 17h10"></path>
@@ -171,22 +238,7 @@
                     <option value="100">100</option>
                   </select>
                 </div>
-                <button
-                  class="panel-toggle"
-                  type="button"
-                  data-collapse-toggle
-                  aria-expanded="true"
-                  aria-controls="likes-panel-body"
-                  aria-label="Collapse likes"
-                  title="Collapse likes"
-              >
-                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M6 9l6 6 6-6"></path>
-                </svg>
-              </button>
               </div>
-            </div>
-            <div class="panel-body" id="likes-panel-body" data-collapsible-body>
               <ul class="likes-list" data-likes-list></ul>
             </div>
           </section>
@@ -327,6 +379,6 @@
       </div>
     </form>
   </div>
-  <script src="dashboard.js?v=30"></script>
+  <script src="dashboard.js?v=34"></script>
 </body>
 </html>

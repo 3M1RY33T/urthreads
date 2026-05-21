@@ -92,6 +92,14 @@ function normalizeOptionalText(value, maxLength) {
   return text.length <= maxLength ? text : "";
 }
 
+function normalizeDeniedKeyword(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .slice(0, 80);
+}
+
 /**
  * Basic email validation
  */
@@ -115,12 +123,98 @@ function parsePositiveInteger(value, fallback, max) {
   return Math.min(number, max);
 }
 
+function parseStatsDays(value) {
+  const range = String(value || "").trim().toLowerCase();
+  const match = range.match(/^(\d+)d$/);
+  const days = match ? Number(match[1]) : Number(value);
+  if (!Number.isInteger(days) || days <= 0) return 30;
+  return Math.min(days, 90);
+}
+
+function parseStatsStartDate(value) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+
+  const date = new Date(`${text}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
+    return null;
+  }
+
+  return date;
+}
+
 function normalizePathSearch(value) {
   return String(value || "").trim().slice(0, 500);
 }
 
 function escapeSqlLike(value) {
   return String(value || "").replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+async function recordEngagementEvent(env, eventType, path, commentId = null) {
+  if (!env.DB) return;
+
+  try {
+    await env.DB.prepare(`
+      INSERT INTO engagement_events (event_type, path, comment_id)
+      VALUES (?1, ?2, ?3)
+    `)
+      .bind(eventType, path, commentId)
+      .run();
+  } catch (error) {
+    console.error("Unable to record engagement event:", error);
+  }
+}
+
+async function listDeniedKeywords(env) {
+  if (!env.DB) return [];
+
+  const { results } = await env.DB.prepare(`
+    SELECT keyword
+    FROM comment_denied_keywords
+    ORDER BY keyword ASC
+  `).all();
+
+  return (results || []).map((row) => row.keyword).filter(Boolean);
+}
+
+async function replaceDeniedKeywords(env, keywords) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const normalizedKeywords = Array.from(new Set(
+    (Array.isArray(keywords) ? keywords : [])
+      .map(normalizeDeniedKeyword)
+      .filter((keyword) => keyword.length >= 2)
+  )).slice(0, 100);
+
+  const statements = [
+    env.DB.prepare("DELETE FROM comment_denied_keywords"),
+    ...normalizedKeywords.map((keyword) => env.DB.prepare(`
+      INSERT INTO comment_denied_keywords (keyword)
+      VALUES (?1)
+    `).bind(keyword)),
+  ];
+
+  await env.DB.batch(statements);
+  return normalizedKeywords;
+}
+
+async function getDeniedKeywordMatch(env, fields) {
+  let keywords = [];
+  try {
+    keywords = await listDeniedKeywords(env);
+  } catch (error) {
+    console.error("Unable to load denied keywords:", error);
+    return "";
+  }
+
+  if (!keywords.length) return "";
+  const haystack = fields
+    .map((field) => String(field || "").toLowerCase())
+    .join("\n");
+  return keywords.find((keyword) => haystack.includes(keyword)) || "";
 }
 
 function isAdminKeyExpired(env, now = Date.now()) {
@@ -275,6 +369,8 @@ async function incrementLikeCount(env, path) {
     .bind(path)
     .run();
 
+  await recordEngagementEvent(env, "page_like", path);
+
   return getLikeCount(env, path);
 }
 
@@ -333,6 +429,7 @@ async function createComment(env, data) {
   }
 
   const parentId = data.parentId ? Number(data.parentId) : null;
+  const status = data.status === "rejected" ? "rejected" : "pending";
 
   if (parentId) {
     const parent = await env.DB.prepare(
@@ -360,7 +457,7 @@ async function createComment(env, data) {
       created_at,
       updated_at
     )
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `)
     .bind(
       data.path,
@@ -370,11 +467,14 @@ async function createComment(env, data) {
       data.nickname,
       data.email || null,
       data.website || null,
-      data.content
+      data.content,
+      status
     )
     .run();
 
-  return result.meta?.last_row_id || null;
+  const id = result.meta?.last_row_id || null;
+  await recordEngagementEvent(env, "comment_create", data.path, id);
+  return id;
 }
 
 /**
@@ -442,6 +542,16 @@ async function incrementCommentLikeCount(env, commentId) {
 
   if (result?.meta?.affected_rows === 0) {
     return null;
+  }
+
+  const comment = await env.DB.prepare(
+    "SELECT path FROM post_comments WHERE id = ?1"
+  )
+    .bind(commentId)
+    .first();
+
+  if (comment?.path) {
+    await recordEngagementEvent(env, "comment_like", comment.path, commentId);
   }
 
   return getCommentLikeCount(env, commentId);
@@ -544,6 +654,8 @@ async function handleComments(request, env, url) {
     }
 
     try {
+      const deniedKeyword = await getDeniedKeywordMatch(env, [content, nickname]);
+      const status = deniedKeyword ? "rejected" : "pending";
       const id = await createComment(env, {
         path,
         pageUrl,
@@ -553,13 +665,14 @@ async function handleComments(request, env, url) {
         website,
         content,
         parentId,
+        status,
       });
 
       return jsonResponse(
         request,
         env,
         { id, path, status: "pending", parentId },
-        201
+        deniedKeyword ? 202 : 201
       );
     } catch (error) {
       return jsonResponse(
@@ -835,6 +948,194 @@ async function listAdminLikes(env, url) {
   }));
 }
 
+async function getAdminStats(env, url) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const days = parseStatsDays(url.searchParams.get("range") || url.searchParams.get("days"));
+  const now = new Date();
+  const today = new Date(now);
+  today.setUTCHours(0, 0, 0, 0);
+  const requestedStart = parseStatsStartDate(url.searchParams.get("start"));
+  const isHourly = days === 1;
+  const since = requestedStart ? new Date(requestedStart) : new Date(now);
+  if (requestedStart) {
+    if (since > today) {
+      since.setTime(today.getTime());
+    }
+  } else if (isHourly) {
+    since.setTime(today.getTime());
+  } else {
+    since.setUTCDate(since.getUTCDate() - (days - 1));
+    since.setUTCHours(0, 0, 0, 0);
+  }
+  const until = new Date(since);
+  if (isHourly) {
+    until.setUTCDate(until.getUTCDate() + 1);
+  } else {
+    until.setUTCDate(until.getUTCDate() + days);
+  }
+  const sinceTimestamp = since.toISOString();
+  const sinceSqlTimestamp = sinceTimestamp.slice(0, 19).replace("T", " ");
+  const untilTimestamp = until.toISOString();
+  const untilSqlTimestamp = untilTimestamp.slice(0, 19).replace("T", " ");
+  const sinceDate = sinceTimestamp.slice(0, 10);
+  const untilDate = untilTimestamp.slice(0, 10);
+  const bucketExpression = isHourly
+    ? "strftime('%Y-%m-%dT%H:00:00Z', created_at)"
+    : "date(created_at)";
+  const updatedBucketExpression = isHourly
+    ? "strftime('%Y-%m-%dT%H:00:00Z', updated_at)"
+    : "date(updated_at)";
+  const timeFilter = isHourly
+    ? "datetime(created_at) >= datetime(?1) AND datetime(created_at) < datetime(?2)"
+    : "date(created_at) >= ?1 AND date(created_at) < ?2";
+  const updatedTimeFilter = isHourly
+    ? "datetime(updated_at) >= datetime(?1) AND datetime(updated_at) < datetime(?2)"
+    : "date(updated_at) >= ?1 AND date(updated_at) < ?2";
+  const sinceBinding = isHourly ? sinceSqlTimestamp : sinceDate;
+  const untilBinding = isHourly ? untilSqlTimestamp : untilDate;
+
+  const events = await env.DB.prepare(`
+    SELECT
+      ${bucketExpression} as bucket,
+      event_type,
+      COUNT(*) as count
+    FROM engagement_events
+    WHERE ${timeFilter}
+    GROUP BY bucket, event_type
+    ORDER BY bucket ASC
+  `)
+    .bind(sinceBinding, untilBinding)
+    .all();
+
+  const legacyPageLikes = await env.DB.prepare(`
+    SELECT
+      ${updatedBucketExpression} as bucket,
+      COALESCE(SUM(count), 0) as count
+    FROM post_likes
+    WHERE ${updatedTimeFilter}
+    GROUP BY bucket
+    ORDER BY bucket ASC
+  `)
+    .bind(sinceBinding, untilBinding)
+    .all();
+
+  const legacyCommentLikes = await env.DB.prepare(`
+    SELECT
+      ${updatedBucketExpression} as bucket,
+      COALESCE(SUM(likes_count), 0) as count
+    FROM post_comments
+    WHERE ${updatedTimeFilter}
+      AND likes_count > 0
+    GROUP BY bucket
+    ORDER BY bucket ASC
+  `)
+    .bind(sinceBinding, untilBinding)
+    .all();
+
+  const legacyComments = await env.DB.prepare(`
+    SELECT
+      ${bucketExpression} as bucket,
+      COUNT(*) as count
+    FROM post_comments
+    WHERE ${timeFilter}
+    GROUP BY bucket
+    ORDER BY bucket ASC
+  `)
+    .bind(sinceBinding, untilBinding)
+    .all();
+
+  const moderation = await env.DB.prepare(`
+    SELECT
+      ${bucketExpression} as bucket,
+      COUNT(*) as count
+    FROM admin_audit_logs
+    WHERE ${timeFilter}
+      AND action IN ('admin.comments.approve', 'admin.comments.reject')
+      AND status < 400
+    GROUP BY bucket
+    ORDER BY bucket ASC
+  `)
+    .bind(sinceBinding, untilBinding)
+    .all();
+
+  const legacyModeration = await env.DB.prepare(`
+    SELECT
+      ${updatedBucketExpression} as bucket,
+      COUNT(*) as count
+    FROM post_comments
+    WHERE ${updatedTimeFilter}
+      AND status IN ('approved', 'rejected')
+    GROUP BY bucket
+    ORDER BY bucket ASC
+  `)
+    .bind(sinceBinding, untilBinding)
+    .all();
+
+  const buckets = new Map();
+  const bucketCount = isHourly ? 24 : days;
+  for (let index = 0; index < bucketCount; index += 1) {
+    const bucketDate = new Date(since);
+    if (isHourly) {
+      bucketDate.setUTCHours(index, 0, 0, 0);
+    } else {
+      bucketDate.setUTCDate(since.getUTCDate() + index);
+    }
+    const key = isHourly ? bucketDate.toISOString().slice(0, 13) + ":00:00Z" : bucketDate.toISOString().slice(0, 10);
+    buckets.set(key, {
+      bucket: key,
+      day: key.slice(0, 10),
+      pageLikes: 0,
+      commentLikes: 0,
+      comments: 0,
+      moderationActions: 0,
+    });
+  }
+
+  const eventRows = events.results || [];
+  const hasEventType = (eventType) => eventRows.some((row) => row.event_type === eventType);
+  const applyRows = (rows, key) => {
+    (rows.results || rows || []).forEach((row) => {
+      const bucket = buckets.get(row.bucket);
+      if (!bucket) return;
+      bucket[key] = Number(row.count || 0);
+    });
+  };
+
+  eventRows.forEach((row) => {
+    const bucket = buckets.get(row.bucket);
+    if (!bucket) return;
+    const count = Number(row.count || 0);
+    if (row.event_type === "page_like") bucket.pageLikes = count;
+    if (row.event_type === "comment_like") bucket.commentLikes = count;
+    if (row.event_type === "comment_create") bucket.comments = count;
+  });
+
+  if (!hasEventType("page_like")) applyRows(legacyPageLikes, "pageLikes");
+  if (!hasEventType("comment_like")) applyRows(legacyCommentLikes, "commentLikes");
+  if (!hasEventType("comment_create")) applyRows(legacyComments, "comments");
+
+  if ((moderation.results || []).length) {
+    applyRows(moderation, "moderationActions");
+  } else {
+    applyRows(legacyModeration, "moderationActions");
+  }
+
+  return {
+    rangeDays: days,
+    bucketUnit: isHourly ? "hour" : "day",
+    since: sinceDate,
+    sinceTimestamp,
+    until: untilDate,
+    untilTimestamp,
+    selectedStart: sinceDate,
+    includesLegacyAggregates: true,
+    points: Array.from(buckets.values()),
+  };
+}
+
 async function listAdminAuditLogs(env, url) {
   if (!env.DB) {
     throw new Error("D1 binding DB is not configured.");
@@ -908,6 +1209,13 @@ async function handleAdmin(request, env, url) {
     const summary = await getAdminSummary(env);
     auditAction = "admin.summary.read";
     response = jsonResponse(request, env, summary);
+  } else if (url.pathname === "/admin/stats" && request.method === "GET") {
+    const stats = await getAdminStats(env, url);
+    auditAction = "admin.stats.read";
+    auditDetails = {
+      range: url.searchParams.get("range") || url.searchParams.get("days") || "30d",
+    };
+    response = jsonResponse(request, env, stats);
   } else if (url.pathname === "/admin/comments" && request.method === "GET") {
     const comments = await listAdminComments(env, url);
     auditAction = "admin.comments.list";
@@ -960,6 +1268,22 @@ async function handleAdmin(request, env, url) {
       path: normalizePathSearch(url.searchParams.get("path")),
     };
     response = jsonResponse(request, env, { likes });
+  } else if (url.pathname === "/admin/comment-settings" && request.method === "GET") {
+    const deniedKeywords = await listDeniedKeywords(env);
+    auditAction = "admin.comment_settings.read";
+    response = jsonResponse(request, env, { deniedKeywords });
+  } else if (url.pathname === "/admin/comment-settings" && request.method === "PUT") {
+    const payload = await readJsonBody(request);
+    if (!payload) {
+      auditAction = "admin.comment_settings.update_failed";
+      auditDetails = { reason: "invalid_json" };
+      response = jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
+    } else {
+      const deniedKeywords = await replaceDeniedKeywords(env, payload.deniedKeywords);
+      auditAction = "admin.comment_settings.update";
+      auditDetails = { deniedKeywordCount: deniedKeywords.length };
+      response = jsonResponse(request, env, { deniedKeywords });
+    }
   } else if (url.pathname === "/admin/audit-logs" && request.method === "GET") {
     const auditLogs = await listAdminAuditLogs(env, url);
     auditAction = "admin.audit_logs.list";

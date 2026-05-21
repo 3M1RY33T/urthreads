@@ -385,6 +385,14 @@ Returns paths with likes/comment counts for the dashboard. `sort` can be `releva
 
 Returns the current Worker URL and configured metadata. Cloudflare account-wide Worker listings should be proxied server-side rather than fetched from browser code.
 
+**GET** `/admin/stats?range=30d`
+
+Returns daily engagement trend buckets for the dashboard graph. New installs track page likes, comment likes, submitted comments, and moderation actions through append-only analytics events.
+
+**GET/PUT** `/admin/comment-settings`
+
+Reads or replaces the denied keyword list used for automatic comment rejection. Matching is case-insensitive against comment text and author name. Public comment submissions that match are stored as rejected comments and receive a neutral pending response.
+
 **GET** `/admin/audit-logs?limit=25`
 
 Returns recent protected dashboard activity. Audit entries include action, method, path, response status, client IP, user agent, timestamp, sanitized details, and a short admin-key fingerprint. Raw admin keys and request bodies are not stored.
@@ -448,6 +456,28 @@ CREATE TABLE admin_audit_logs (
   client_ip TEXT,
   user_agent TEXT,
   details TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### engagement_events
+
+```sql
+CREATE TABLE engagement_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  path TEXT NOT NULL,
+  comment_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### comment_denied_keywords
+
+```sql
+CREATE TABLE comment_denied_keywords (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  keyword TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ```
