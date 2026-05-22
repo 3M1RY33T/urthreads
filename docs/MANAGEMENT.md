@@ -5,13 +5,14 @@
 Comments are stored with a `status` field that controls visibility:
 - `pending`: Not yet approved (default for new comments)
 - `approved`: Visible to public
+- `hidden`: Previously approved, then hidden from public display
 - `rejected`: Rejected and hidden
 
 This guide shows how to manage comments using the `thread-cf` CLI, Wrangler CLI, and D1.
 
 ## Admin Dashboard
 
-The built-in static dashboard in `dashboard/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/rejected comments, ranked liked/commented paths, and Worker configuration metadata.
+The built-in static dashboard in `dashboard/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/hidden/rejected comments, ranked liked/commented paths, and Worker configuration metadata.
 
 Create an admin secret before using it:
 
@@ -37,6 +38,7 @@ The dashboard uses these protected endpoints:
 - `POST /admin/comments/approve`
 - `POST /admin/comments/reject`
 - `GET /admin/comment-settings`
+- `POST /admin/comment-settings`
 - `PUT /admin/comment-settings`
 - `GET /admin/likes?sort=relevance&direction=desc&path=/blog&limit=25`
 - `GET /admin/worker`

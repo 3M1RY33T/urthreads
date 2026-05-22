@@ -19,6 +19,8 @@ const jsonHeaders = {
 };
 
 const MAX_COMMENTS_PER_POST = 100;
+let commentHiddenColumnReady = false;
+let deniedKeywordsTableReady = false;
 
 /**
  * Get CORS headers based on origin
@@ -39,7 +41,7 @@ function getCorsHeaders(request, env) {
       "Access-Control-Allow-Origin": allowedOrigins.includes("*")
         ? "*"
         : origin,
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
       "Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, X-Admin-Key",
       "Vary": "Origin",
     };
@@ -166,8 +168,39 @@ async function recordEngagementEvent(env, eventType, path, commentId = null) {
   }
 }
 
+async function ensureCommentHiddenColumn(env) {
+  if (!env.DB || commentHiddenColumnReady) return;
+
+  try {
+    await env.DB.prepare("ALTER TABLE post_comments ADD COLUMN hidden_at TEXT").run();
+  } catch (error) {
+    const message = String(error?.message || error || "").toLowerCase();
+    if (!message.includes("duplicate column") && !message.includes("already exists")) {
+      throw error;
+    }
+  }
+
+  commentHiddenColumnReady = true;
+}
+
+async function ensureDeniedKeywordsTable(env) {
+  if (!env.DB || deniedKeywordsTableReady) return;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS comment_denied_keywords (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      keyword TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
+  deniedKeywordsTableReady = true;
+}
+
 async function listDeniedKeywords(env) {
   if (!env.DB) return [];
+
+  await ensureDeniedKeywordsTable(env);
 
   const { results } = await env.DB.prepare(`
     SELECT keyword
@@ -182,6 +215,8 @@ async function replaceDeniedKeywords(env, keywords) {
   if (!env.DB) {
     throw new Error("D1 binding DB is not configured.");
   }
+
+  await ensureDeniedKeywordsTable(env);
 
   const normalizedKeywords = Array.from(new Set(
     (Array.isArray(keywords) ? keywords : [])
@@ -381,11 +416,13 @@ async function getApprovedComments(env, path) {
   if (!env.DB) {
     throw new Error("D1 binding DB is not configured.");
   }
+  await ensureCommentHiddenColumn(env);
 
   const { results } = await env.DB.prepare(`
-    SELECT id, parent_id, author_name, content, created_at, likes_count
+    SELECT id, parent_id, author_name, content, created_at, likes_count, hidden_at
     FROM post_comments
-    WHERE path = ?1 AND status = 'approved'
+    WHERE path = ?1
+      AND status = 'approved'
     ORDER BY created_at ASC, id ASC
     LIMIT ?2
   `)
@@ -398,6 +435,7 @@ async function getApprovedComments(env, path) {
     authorName: comment.author_name,
     content: comment.content,
     likesCount: Number(comment.likes_count || 0),
+    hiddenAt: comment.hidden_at || null,
     createdAt: formatTimestamp(comment.created_at),
     replies: [],
   }));
@@ -410,9 +448,12 @@ async function getApprovedComments(env, path) {
   });
 
   comments.forEach((comment) => {
+    if (comment.hiddenAt) {
+      return;
+    }
     if (comment.parentId && commentMap.has(comment.parentId)) {
       commentMap.get(comment.parentId).replies.push(comment);
-    } else {
+    } else if (!comment.parentId) {
       rootComments.push(comment);
     }
   });
@@ -691,6 +732,7 @@ async function getAdminSummary(env) {
   if (!env.DB) {
     throw new Error("D1 binding DB is not configured.");
   }
+  await ensureCommentHiddenColumn(env);
 
   const [likeSummary, commentSummary, commentLikeSummary, recentPending] = await Promise.all([
     env.DB.prepare(`
@@ -701,7 +743,8 @@ async function getAdminSummary(env) {
       SELECT
         COUNT(*) as total_comments,
         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_comments,
-        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_comments,
+        SUM(CASE WHEN status = 'approved' AND hidden_at IS NULL THEN 1 ELSE 0 END) as approved_comments,
+        SUM(CASE WHEN status = 'approved' AND hidden_at IS NOT NULL THEN 1 ELSE 0 END) as hidden_comments,
         SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected_comments
       FROM post_comments
     `).first(),
@@ -728,6 +771,7 @@ async function getAdminSummary(env) {
       total: Number(commentSummary?.total_comments || 0),
       pending: Number(commentSummary?.pending_comments || 0),
       approved: Number(commentSummary?.approved_comments || 0),
+      hidden: Number(commentSummary?.hidden_comments || 0),
       rejected: Number(commentSummary?.rejected_comments || 0),
     },
     recentPending: (recentPending.results || []).map((comment) => ({
@@ -744,8 +788,9 @@ async function listAdminComments(env, url) {
   if (!env.DB) {
     throw new Error("D1 binding DB is not configured.");
   }
+  await ensureCommentHiddenColumn(env);
 
-  const allowedStatuses = new Set(["pending", "approved", "rejected", "all"]);
+  const allowedStatuses = new Set(["pending", "approved", "rejected", "hidden", "all"]);
   const status = allowedStatuses.has(url.searchParams.get("status"))
     ? url.searchParams.get("status")
     : "pending";
@@ -755,7 +800,13 @@ async function listAdminComments(env, url) {
   const whereParts = [];
   const bindings = [];
 
-  if (status !== "all") {
+  if (status === "hidden") {
+    whereParts.push("hidden_at IS NOT NULL");
+  } else if (status === "approved") {
+    whereParts.push("status = ?");
+    bindings.push(status);
+    whereParts.push("hidden_at IS NULL");
+  } else if (status !== "all") {
     whereParts.push("status = ?");
     bindings.push(status);
   }
@@ -809,6 +860,7 @@ async function listAdminComments(env, url) {
       c.content,
       c.likes_count,
       c.status,
+      c.hidden_at,
       c.created_at,
       c.updated_at,
       parent.author_name as parent_author_name,
@@ -838,6 +890,7 @@ async function listAdminComments(env, url) {
     content: comment.content,
     likesCount: Number(comment.likes_count || 0),
     status: comment.status,
+    hiddenAt: formatTimestamp(comment.hidden_at),
     createdAt: formatTimestamp(comment.created_at),
     updatedAt: formatTimestamp(comment.updated_at),
   }));
@@ -847,6 +900,7 @@ async function updateCommentStatus(env, id, status) {
   if (!env.DB) {
     throw new Error("D1 binding DB is not configured.");
   }
+  await ensureCommentHiddenColumn(env);
 
   const commentId = Number(id);
   if (!Number.isInteger(commentId) || commentId <= 0) {
@@ -856,6 +910,7 @@ async function updateCommentStatus(env, id, status) {
   const result = await env.DB.prepare(`
     UPDATE post_comments
     SET status = ?1,
+        hidden_at = NULL,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ?2
   `)
@@ -871,6 +926,110 @@ async function updateCommentStatus(env, id, status) {
   `)
     .bind(commentId)
     .first();
+}
+
+async function hideComment(env, id) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+  await ensureCommentHiddenColumn(env);
+
+  const commentId = Number(id);
+  if (!Number.isInteger(commentId) || commentId <= 0) {
+    return null;
+  }
+
+  const result = await env.DB.prepare(`
+    UPDATE post_comments
+    SET status = 'approved',
+        hidden_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?1
+  `)
+    .bind(commentId)
+    .run();
+
+  if (result?.meta?.affected_rows === 0) return null;
+
+  return env.DB.prepare(`
+    SELECT id, path, author_name, status, hidden_at, updated_at
+    FROM post_comments
+    WHERE id = ?1
+  `)
+    .bind(commentId)
+    .first();
+}
+
+async function unhideComment(env, id) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+  await ensureCommentHiddenColumn(env);
+
+  const commentId = Number(id);
+  if (!Number.isInteger(commentId) || commentId <= 0) {
+    return null;
+  }
+
+  const result = await env.DB.prepare(`
+    UPDATE post_comments
+    SET status = 'approved',
+        hidden_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?1
+  `)
+    .bind(commentId)
+    .run();
+
+  if (result?.meta?.affected_rows === 0) return null;
+
+  return env.DB.prepare(`
+    SELECT id, path, author_name, status, hidden_at, updated_at
+    FROM post_comments
+    WHERE id = ?1
+  `)
+    .bind(commentId)
+    .first();
+}
+
+async function deleteComment(env, id) {
+  if (!env.DB) {
+    throw new Error("D1 binding DB is not configured.");
+  }
+
+  const commentId = Number(id);
+  if (!Number.isInteger(commentId) || commentId <= 0) {
+    return null;
+  }
+
+  const comment = await env.DB.prepare(`
+    SELECT id, path, author_name
+    FROM post_comments
+    WHERE id = ?1
+  `)
+    .bind(commentId)
+    .first();
+
+  if (!comment) return null;
+
+  const result = await env.DB.prepare(`
+    WITH RECURSIVE comment_tree(id) AS (
+      SELECT id FROM post_comments WHERE id = ?1
+      UNION ALL
+      SELECT child.id
+      FROM post_comments child
+      INNER JOIN comment_tree parent ON child.parent_id = parent.id
+    )
+    DELETE FROM post_comments
+    WHERE id IN (SELECT id FROM comment_tree)
+  `)
+    .bind(commentId)
+    .run();
+
+  return {
+    ...comment,
+    deletedCount: Number(result?.meta?.changes || result?.meta?.rows_written || 0),
+  };
 }
 
 async function listAdminLikes(env, url) {
@@ -959,10 +1118,12 @@ async function getAdminStats(env, url) {
   today.setUTCHours(0, 0, 0, 0);
   const requestedStart = parseStatsStartDate(url.searchParams.get("start"));
   const isHourly = days === 1;
+  const latestStart = new Date(today);
+  latestStart.setUTCDate(latestStart.getUTCDate() - (days - 1));
   const since = requestedStart ? new Date(requestedStart) : new Date(now);
   if (requestedStart) {
-    if (since > today) {
-      since.setTime(today.getTime());
+    if (since > latestStart) {
+      since.setTime(latestStart.getTime());
     }
   } else if (isHourly) {
     since.setTime(today.getTime());
@@ -1053,7 +1214,7 @@ async function getAdminStats(env, url) {
       COUNT(*) as count
     FROM admin_audit_logs
     WHERE ${timeFilter}
-      AND action IN ('admin.comments.approve', 'admin.comments.reject')
+      AND action IN ('admin.comments.approve', 'admin.comments.reject', 'admin.comments.hide', 'admin.comments.unhide', 'admin.comments.delete')
       AND status < 400
     GROUP BY bucket
     ORDER BY bucket ASC
@@ -1143,8 +1304,36 @@ async function listAdminAuditLogs(env, url) {
 
   const limit = parsePositiveInteger(url.searchParams.get("limit"), 50, 100);
   const action = String(url.searchParams.get("action") || "").trim().slice(0, 120);
-  const whereClause = action ? "WHERE action = ?1" : "";
-  const bindings = action ? [action, limit] : [limit];
+  const allowedMethods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+  const method = String(url.searchParams.get("method") || "").trim().toUpperCase();
+  const pathSearch = normalizePathSearch(url.searchParams.get("path"));
+  const date = parseStatsStartDate(url.searchParams.get("date"));
+  const bindings = [];
+  const filters = [];
+
+  if (action) {
+    bindings.push(action);
+    filters.push(`action = ?${bindings.length}`);
+  }
+
+  if (allowedMethods.has(method)) {
+    bindings.push(method);
+    filters.push(`method = ?${bindings.length}`);
+  }
+
+  if (pathSearch) {
+    bindings.push(`%${escapeSqlLike(pathSearch)}%`);
+    filters.push(`path LIKE ?${bindings.length} ESCAPE '\\'`);
+  }
+
+  if (date) {
+    bindings.push(date.toISOString().slice(0, 10));
+    filters.push(`date(created_at) = ?${bindings.length}`);
+  }
+
+  bindings.push(limit);
+  const limitPlaceholder = `?${bindings.length}`;
+  const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
   const { results } = await env.DB.prepare(`
     SELECT
@@ -1161,7 +1350,7 @@ async function listAdminAuditLogs(env, url) {
     FROM admin_audit_logs
     ${whereClause}
     ORDER BY created_at DESC, id DESC
-    LIMIT ${action ? "?2" : "?1"}
+    LIMIT ${limitPlaceholder}
   `)
     .bind(...bindings)
     .all();
@@ -1227,7 +1416,10 @@ async function handleAdmin(request, env, url) {
     response = jsonResponse(request, env, { comments });
   } else if (
     (url.pathname === "/admin/comments/approve" ||
-      url.pathname === "/admin/comments/reject") &&
+      url.pathname === "/admin/comments/reject" ||
+      url.pathname === "/admin/comments/hide" ||
+      url.pathname === "/admin/comments/unhide" ||
+      url.pathname === "/admin/comments/delete") &&
     request.method === "POST"
   ) {
     const payload = await readJsonBody(request);
@@ -1235,6 +1427,64 @@ async function handleAdmin(request, env, url) {
       auditAction = "admin.comments.update_failed";
       auditDetails = { reason: "invalid_json" };
       response = jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
+    } else if (url.pathname.endsWith("/delete")) {
+      const comment = await deleteComment(env, payload.id);
+      auditAction = "admin.comments.delete";
+      auditDetails = {
+        commentId: Number(payload.id || 0),
+        path: comment?.path || "",
+        deletedCount: Number(comment?.deletedCount || 0),
+      };
+      if (!comment) {
+        response = jsonResponse(request, env, { error: "Comment not found." }, 404);
+      } else {
+        response = jsonResponse(request, env, {
+          id: comment.id,
+          path: comment.path,
+          authorName: comment.author_name,
+          deletedCount: comment.deletedCount,
+        });
+      }
+    } else if (url.pathname.endsWith("/hide")) {
+      const comment = await hideComment(env, payload.id);
+      auditAction = "admin.comments.hide";
+      auditDetails = {
+        commentId: Number(payload.id || 0),
+        status: "hidden",
+        path: comment?.path || "",
+      };
+      if (!comment) {
+        response = jsonResponse(request, env, { error: "Comment not found." }, 404);
+      } else {
+        response = jsonResponse(request, env, {
+          id: comment.id,
+          path: comment.path,
+          authorName: comment.author_name,
+          status: "hidden",
+          hiddenAt: formatTimestamp(comment.hidden_at),
+          updatedAt: formatTimestamp(comment.updated_at),
+        });
+      }
+    } else if (url.pathname.endsWith("/unhide")) {
+      const comment = await unhideComment(env, payload.id);
+      auditAction = "admin.comments.unhide";
+      auditDetails = {
+        commentId: Number(payload.id || 0),
+        status: "approved",
+        path: comment?.path || "",
+      };
+      if (!comment) {
+        response = jsonResponse(request, env, { error: "Comment not found." }, 404);
+      } else {
+        response = jsonResponse(request, env, {
+          id: comment.id,
+          path: comment.path,
+          authorName: comment.author_name,
+          status: comment.status,
+          hiddenAt: formatTimestamp(comment.hidden_at),
+          updatedAt: formatTimestamp(comment.updated_at),
+        });
+      }
     } else {
       const status = url.pathname.endsWith("/approve") ? "approved" : "rejected";
       const comment = await updateCommentStatus(env, payload.id, status);
@@ -1272,7 +1522,10 @@ async function handleAdmin(request, env, url) {
     const deniedKeywords = await listDeniedKeywords(env);
     auditAction = "admin.comment_settings.read";
     response = jsonResponse(request, env, { deniedKeywords });
-  } else if (url.pathname === "/admin/comment-settings" && request.method === "PUT") {
+  } else if (
+    url.pathname === "/admin/comment-settings" &&
+    (request.method === "POST" || request.method === "PUT")
+  ) {
     const payload = await readJsonBody(request);
     if (!payload) {
       auditAction = "admin.comment_settings.update_failed";
@@ -1290,6 +1543,9 @@ async function handleAdmin(request, env, url) {
     auditDetails = {
       limit: url.searchParams.get("limit") || "50",
       action: String(url.searchParams.get("action") || "").slice(0, 120),
+      method: String(url.searchParams.get("method") || "").slice(0, 12),
+      path: normalizePathSearch(url.searchParams.get("path")),
+      date: String(url.searchParams.get("date") || "").slice(0, 10),
     };
     response = jsonResponse(request, env, { auditLogs });
   } else if (url.pathname === "/admin/worker" && request.method === "GET") {

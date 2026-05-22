@@ -10,8 +10,15 @@
     adminKey: window.sessionStorage.getItem(storageKeys.adminKey) || '',
     theme: window.localStorage.getItem(storageKeys.theme) || 'light',
     statsRange: '30d',
+    statsStartDate: '',
     statsStartDatePinned: false,
+    statsCalendarMonth: null,
+    statsRequestId: 0,
+    auditDate: '',
+    auditCalendarMonth: null,
     deniedKeywords: [],
+    pendingKeywordDelete: '',
+    pendingKeywordDeleteTimer: null,
     pendingConfirmResolve: null,
   };
 
@@ -42,7 +49,14 @@
     statsChart: document.querySelector('[data-stats-chart]'),
     statsLegend: document.querySelector('[data-stats-legend]'),
     statsRangeButtons: document.querySelectorAll('[data-stats-range]'),
-    statsStartDate: document.querySelector('[data-stats-start-date]'),
+    statsDatePicker: document.querySelector('[data-stats-date-picker]'),
+    statsDateToggle: document.querySelector('[data-stats-date-toggle]'),
+    statsDateLabel: document.querySelector('[data-stats-date-label]'),
+    statsDatePopover: document.querySelector('[data-stats-date-popover]'),
+    statsDateMonth: document.querySelector('[data-stats-date-month]'),
+    statsDateGrid: document.querySelector('[data-stats-date-grid]'),
+    statsDatePrev: document.querySelector('[data-stats-date-prev]'),
+    statsDateNext: document.querySelector('[data-stats-date-next]'),
     commentStatus: document.querySelector('[data-comment-status]'),
     commentPath: document.querySelector('[data-comment-path]'),
     commentLimit: document.querySelector('[data-comment-limit]'),
@@ -55,7 +69,17 @@
     likesDirection: document.querySelector('[data-likes-direction]'),
     likesPath: document.querySelector('[data-likes-path]'),
     likesLimit: document.querySelector('[data-likes-limit]'),
+    auditMethod: document.querySelector('[data-audit-method]'),
+    auditPath: document.querySelector('[data-audit-path]'),
     auditLimit: document.querySelector('[data-audit-limit]'),
+    auditDatePicker: document.querySelector('[data-audit-date-picker]'),
+    auditDateToggle: document.querySelector('[data-audit-date-toggle]'),
+    auditDateLabel: document.querySelector('[data-audit-date-label]'),
+    auditDatePopover: document.querySelector('[data-audit-date-popover]'),
+    auditDateMonth: document.querySelector('[data-audit-date-month]'),
+    auditDateGrid: document.querySelector('[data-audit-date-grid]'),
+    auditDatePrev: document.querySelector('[data-audit-date-prev]'),
+    auditDateNext: document.querySelector('[data-audit-date-next]'),
     commentList: document.querySelector('[data-comment-list]'),
     likesList: document.querySelector('[data-likes-list]'),
     workerList: document.querySelector('[data-worker-list]'),
@@ -159,10 +183,10 @@
     }
   }
 
-  function confirmCommentAction(actionLabel) {
+  function confirmCommentAction(actionLabel, customMessage = '') {
     const submitLabel = actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1);
     elements.confirmMessage.textContent =
-      `Are you sure you want to ${actionLabel} this comment?`;
+      customMessage || `Are you sure you want to ${actionLabel} this comment?`;
     elements.confirmSubmit.setAttribute('aria-label', submitLabel);
     elements.confirmSubmit.title = submitLabel;
     elements.confirmOverlay.hidden = false;
@@ -204,6 +228,219 @@
 
   function togglePanel(button) {
     setPanelCollapsed(button, button.getAttribute('aria-expanded') === 'true');
+  }
+
+  function parseStatsRangeDays() {
+    const match = String(state.statsRange || '30d').match(/^(\d+)d$/);
+    return match ? Number(match[1]) : 30;
+  }
+
+  function toDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function parseDateInputValue(value) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (toDateInputValue(date) !== value) return null;
+    return date;
+  }
+
+  function formatStatsDateLabel(value) {
+    const date = parseDateInputValue(value);
+    if (!date) return 'Pick date';
+    return new Intl.DateTimeFormat([], {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
+
+  function getLatestStatsStartDate() {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (parseStatsRangeDays() - 1));
+    return toDateInputValue(date);
+  }
+
+  function getRollingStatsStartDate() {
+    return getLatestStatsStartDate();
+  }
+
+  function clampStatsStartDate() {
+    const latest = getLatestStatsStartDate();
+    if (!state.statsStartDate || state.statsStartDate > latest) {
+      state.statsStartDate = latest;
+      state.statsCalendarMonth = parseDateInputValue(latest);
+      updateStatsDatePicker();
+    }
+  }
+
+  function setDefaultStatsStartDate(force = false) {
+    if (!force && state.statsStartDatePinned) return;
+    state.statsStartDate = getRollingStatsStartDate();
+    state.statsCalendarMonth = parseDateInputValue(state.statsStartDate);
+    updateStatsDatePicker();
+  }
+
+  function setStatsDatePopoverOpen(open) {
+    elements.statsDatePopover.hidden = !open;
+    elements.statsDateToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      state.statsCalendarMonth = parseDateInputValue(state.statsStartDate) || new Date();
+      renderStatsDateCalendar();
+    }
+  }
+
+  function shiftStatsCalendarMonth(offset) {
+    const base = state.statsCalendarMonth || new Date();
+    state.statsCalendarMonth = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+    renderStatsDateCalendar();
+  }
+
+  async function selectStatsStartDate(value) {
+    state.statsStartDate = value;
+    state.statsStartDatePinned = true;
+    state.statsCalendarMonth = parseDateInputValue(value);
+    updateStatsDatePicker();
+    setStatsDatePopoverOpen(false);
+    await safeLoadStats();
+  }
+
+  function updateStatsDatePicker() {
+    elements.statsDateLabel.textContent = formatStatsDateLabel(state.statsStartDate);
+    elements.statsDateToggle.title = `Start date: ${elements.statsDateLabel.textContent}`;
+    renderStatsDateCalendar();
+  }
+
+  function renderStatsDateCalendar() {
+    if (!elements.statsDateGrid || elements.statsDatePopover.hidden) return;
+
+    const selected = parseDateInputValue(state.statsStartDate);
+    const todayValue = toDateInputValue(new Date());
+    const latestValue = getLatestStatsStartDate();
+    const month = state.statsCalendarMonth || selected || new Date();
+    const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
+    const nextMonthStart = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    elements.statsDateMonth.textContent = new Intl.DateTimeFormat([], {
+      month: 'long',
+      year: 'numeric',
+    }).format(monthStart);
+    elements.statsDateNext.disabled = toDateInputValue(nextMonthStart) > latestValue;
+
+    elements.statsDateGrid.replaceChildren();
+    for (let index = 0; index < 42; index += 1) {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      const value = toDateInputValue(date);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'stats-date-day';
+      button.textContent = String(date.getDate());
+      button.dataset.date = value;
+      button.classList.toggle('is-muted', date.getMonth() !== monthStart.getMonth());
+      button.classList.toggle('is-today', value === todayValue);
+      button.classList.toggle('is-selected', selected && value === state.statsStartDate);
+      button.disabled = value > latestValue;
+      button.setAttribute('aria-label', new Intl.DateTimeFormat([], {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }).format(date));
+      button.addEventListener('click', () => {
+        selectStatsStartDate(value);
+      });
+      elements.statsDateGrid.append(button);
+    }
+  }
+
+  function setDefaultAuditDate(force = false) {
+    if (!force && state.auditDate) return;
+    state.auditDate = toDateInputValue(new Date());
+    state.auditCalendarMonth = parseDateInputValue(state.auditDate);
+    updateAuditDatePicker();
+  }
+
+  function setAuditDatePopoverOpen(open) {
+    elements.auditDatePopover.hidden = !open;
+    elements.auditDateToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      state.auditCalendarMonth = parseDateInputValue(state.auditDate) || new Date();
+      renderAuditDateCalendar();
+    }
+  }
+
+  function shiftAuditCalendarMonth(offset) {
+    const base = state.auditCalendarMonth || new Date();
+    state.auditCalendarMonth = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+    renderAuditDateCalendar();
+  }
+
+  async function selectAuditDate(value) {
+    state.auditDate = value;
+    state.auditCalendarMonth = parseDateInputValue(value);
+    updateAuditDatePicker();
+    setAuditDatePopoverOpen(false);
+    await safeLoadAuditLogs();
+  }
+
+  function updateAuditDatePicker() {
+    elements.auditDateLabel.textContent = formatStatsDateLabel(state.auditDate);
+    elements.auditDateToggle.title = `Log date: ${elements.auditDateLabel.textContent}`;
+    renderAuditDateCalendar();
+  }
+
+  function renderAuditDateCalendar() {
+    if (!elements.auditDateGrid || elements.auditDatePopover.hidden) return;
+
+    const selected = parseDateInputValue(state.auditDate);
+    const today = new Date();
+    const todayValue = toDateInputValue(today);
+    const month = state.auditCalendarMonth || selected || today;
+    const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
+    const nextMonthStart = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    elements.auditDateMonth.textContent = new Intl.DateTimeFormat([], {
+      month: 'long',
+      year: 'numeric',
+    }).format(monthStart);
+    elements.auditDateNext.disabled = toDateInputValue(nextMonthStart) > todayValue;
+
+    elements.auditDateGrid.replaceChildren();
+    for (let index = 0; index < 42; index += 1) {
+      const date = new Date(gridStart);
+      date.setDate(gridStart.getDate() + index);
+      const value = toDateInputValue(date);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'stats-date-day';
+      button.textContent = String(date.getDate());
+      button.dataset.date = value;
+      button.classList.toggle('is-muted', date.getMonth() !== monthStart.getMonth());
+      button.classList.toggle('is-today', value === todayValue);
+      button.classList.toggle('is-selected', selected && value === state.auditDate);
+      button.disabled = value > todayValue;
+      button.setAttribute('aria-label', new Intl.DateTimeFormat([], {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }).format(date));
+      button.addEventListener('click', () => {
+        selectAuditDate(value);
+      });
+      elements.auditDateGrid.append(button);
+    }
   }
 
   async function requestAdmin(path, options) {
@@ -253,9 +490,58 @@
     list.append(item);
   }
 
+  function clearPendingKeywordDelete(render = true) {
+    if (state.pendingKeywordDeleteTimer) {
+      window.clearTimeout(state.pendingKeywordDeleteTimer);
+      state.pendingKeywordDeleteTimer = null;
+    }
+    if (!state.pendingKeywordDelete) return;
+    state.pendingKeywordDelete = '';
+    if (render) {
+      renderDeniedKeywordsPopover();
+    }
+  }
+
+  function setPendingKeywordDelete(keyword) {
+    clearPendingKeywordDelete(false);
+    state.pendingKeywordDelete = keyword;
+    state.pendingKeywordDeleteTimer = window.setTimeout(() => {
+      clearPendingKeywordDelete();
+    }, 5000);
+    renderDeniedKeywordsPopover();
+  }
+
   function setKeywordPopoverOpen(open) {
+    if (!open) {
+      clearPendingKeywordDelete();
+    }
     elements.keywordPopover.hidden = !open;
     elements.keywordPopoverToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function createTrashIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.25');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+
+    [
+      'M3 6h18',
+      'M8 6V4h8v2',
+      'M6 6l1 16h10l1-16',
+      'M10 11v6',
+      'M14 11v6',
+    ].forEach((pathData) => {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      svg.append(path);
+    });
+
+    return svg;
   }
 
   function renderDeniedKeywordsPopover() {
@@ -270,7 +556,21 @@
 
     state.deniedKeywords.forEach((keyword) => {
       const item = document.createElement('li');
-      item.textContent = keyword;
+      item.className = 'keyword-popover-item';
+      const button = document.createElement('button');
+      const isPendingDelete = state.pendingKeywordDelete === keyword;
+      button.type = 'button';
+      button.className = 'keyword-popover-badge';
+      button.classList.toggle('is-delete-pending', isPendingDelete);
+      button.dataset.deniedKeyword = keyword;
+      button.setAttribute('aria-label', 'Delete Keyword');
+      button.title = 'Delete Keyword';
+      if (isPendingDelete) {
+        button.append(createTrashIcon());
+      } else {
+        button.textContent = keyword;
+      }
+      item.append(button);
       elements.keywordPopoverList.append(item);
     });
   }
@@ -528,6 +828,16 @@
         ['path', { d: 'M10 11v6' }],
         ['path', { d: 'M14 11v6' }],
       ],
+      eyeOff: [
+        ['path', { d: 'M3 3l18 18' }],
+        ['path', { d: 'M10.6 10.6a2 2 0 002.8 2.8' }],
+        ['path', { d: 'M9.5 5.1A9.5 9.5 0 0112 4c5 0 9 5 9 8a8.5 8.5 0 01-2.2 3.4' }],
+        ['path', { d: 'M6.2 6.2C4.2 7.6 3 9.7 3 12c0 3 4 8 9 8 1.3 0 2.6-.3 3.8-.9' }],
+      ],
+      eye: [
+        ['path', { d: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z' }],
+        ['circle', { cx: '12', cy: '12', r: '3' }],
+      ],
       x: [
         ['path', { d: 'M18 6L6 18' }],
         ['path', { d: 'M6 6l12 12' }],
@@ -561,6 +871,71 @@
     return button;
   }
 
+  function getPostDisplayTitle(pageTitle, path) {
+    const rawTitle = String(pageTitle || path || 'Untitled post').trim();
+    const rawPath = String(path || '').trim();
+    if (rawPath && rawTitle.endsWith(` (${rawPath})`)) {
+      return rawTitle.slice(0, -(` (${rawPath})`).length);
+    }
+    return rawTitle;
+  }
+
+  async function copyTextToClipboard(value) {
+    const text = String(value || '');
+    if (!text) return;
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  function makePostTitleButton(pageTitle, path) {
+    const displayTitle = getPostDisplayTitle(pageTitle, path);
+    const postPath = String(path || '').trim();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'post-title-copy-button';
+    button.setAttribute('aria-label', 'Copy post path');
+
+    const label = document.createElement('span');
+    label.className = 'post-title-label';
+    label.textContent = displayTitle;
+
+    const tooltip = document.createElement('span');
+    tooltip.className = 'post-title-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    const tooltipPath = document.createElement('span');
+    tooltipPath.className = 'post-title-tooltip-path';
+    tooltipPath.textContent = postPath || 'No path available';
+    const tooltipHint = document.createElement('span');
+    tooltipHint.className = 'post-title-tooltip-hint';
+    tooltipHint.textContent = 'Click to copy path';
+    tooltip.append(tooltipPath, tooltipHint);
+
+    button.append(label, tooltip);
+    button.addEventListener('click', async () => {
+      if (!postPath) return;
+      await copyTextToClipboard(postPath);
+      tooltipHint.textContent = 'copied';
+      window.setTimeout(() => {
+        tooltipHint.textContent = 'Click to copy path';
+      }, 1200);
+    });
+
+    return button;
+  }
+
   function makeCommentItem(comment, branchStates = [], isLastReply = false, hasReplies = false, requiresAttention = false) {
     const item = document.createElement('li');
     const depth = branchStates.length;
@@ -586,7 +961,7 @@
 
     const title = document.createElement('div');
     title.className = 'comment-title';
-    title.textContent = `${comment.pageTitle || comment.path} (${comment.path})`;
+    title.append(makePostTitleButton(comment.pageTitle, comment.path));
 
     const body = document.createElement('p');
     body.className = 'comment-body';
@@ -604,7 +979,11 @@
     commentSummary.append(
       requiresAttention
         ? makeStatusPill('attention', 'Requires attention')
-        : makeStatusPill(comment.status),
+        : comment.inactive
+            ? makeStatusPill('inactive')
+          : comment.hiddenAt
+            ? makeStatusPill('hidden')
+          : makeStatusPill(comment.status),
     );
     actions.append(commentSummary);
 
@@ -614,6 +993,7 @@
     const approveButton = makeActionIconButton('Approve comment', 'check', 'approve-action');
     approveButton.addEventListener('click', () => updateComment(comment.id, 'approve'));
 
+    const isHidden = Boolean(comment.hiddenAt);
     const isDeleteAction = comment.status === 'approved';
     const rejectButton = makeActionIconButton(
       isDeleteAction ? 'Delete comment' : 'Deny comment',
@@ -623,12 +1003,23 @@
     rejectButton.disabled = comment.status === 'rejected';
     rejectButton.addEventListener('click', () => updateComment(
       comment.id,
-      'reject',
-      isDeleteAction ? 'delete' : 'deny'
+      isDeleteAction ? 'delete' : 'reject',
+      isDeleteAction ? 'delete' : 'deny',
+      { hasReplies }
     ));
 
     if (comment.status !== 'approved') {
       actionButtons.append(approveButton);
+    } else if (comment.inactive) {
+      // Inactive comments inherit visibility from a missing or hidden parent.
+    } else if (isHidden) {
+      const unhideButton = makeActionIconButton('Unhide approved comment', 'eye', 'unhide-action');
+      unhideButton.addEventListener('click', () => updateComment(comment.id, 'unhide'));
+      actionButtons.append(unhideButton);
+    } else {
+      const hideButton = makeActionIconButton('Hide approved comment', 'eyeOff', 'hide-action');
+      hideButton.addEventListener('click', () => updateComment(comment.id, 'hide'));
+      actionButtons.append(hideButton);
     }
     actionButtons.append(rejectButton);
     actions.append(actionButtons);
@@ -647,6 +1038,20 @@
     const commentsById = new Map(comments.map((comment) => [comment.id, comment]));
     const repliesByParentId = new Map();
     const roots = [];
+
+    const isInactiveComment = (comment, visited = new Set()) => {
+      if (!comment.parentId || visited.has(comment.id)) return false;
+      visited.add(comment.id);
+
+      const parent = commentsById.get(comment.parentId);
+      if (!parent) return true;
+      if (parent.hiddenAt) return true;
+      return isInactiveComment(parent, visited);
+    };
+
+    comments.forEach((comment) => {
+      comment.inactive = isInactiveComment(comment);
+    });
 
     comments.forEach((comment) => {
       if (comment.parentId && commentsById.has(comment.parentId)) {
@@ -752,7 +1157,7 @@
       meta.append(count, updated);
       const title = document.createElement('div');
       title.className = 'likes-title';
-      title.textContent = like.path;
+      title.append(makePostTitleButton(like.pageTitle, like.path));
       item.append(meta, title);
       elements.likesList.append(item);
     });
@@ -833,222 +1238,6 @@
     informationDetails.append(informationSummary, infoList);
     informationItem.append(informationDetails);
 
-    const commandsItem = document.createElement('li');
-    commandsItem.className = 'worker-item worker-menu-item';
-    const commandsDetails = document.createElement('details');
-    commandsDetails.className = 'worker-submenu worker-command-submenu';
-    const commandsSummary = makeSubmenuSummary('Worker commands');
-
-    const commandForm = document.createElement('form');
-    commandForm.className = 'worker-command-form';
-
-    const commandInput = document.createElement('textarea');
-    commandInput.rows = 1;
-    commandInput.spellcheck = false;
-    commandInput.placeholder = `curl -i "${worker.workerUrl || state.workerUrl}/likes?path=/example"`;
-    commandInput.setAttribute('aria-label', 'Custom Worker command');
-
-    const runButton = document.createElement('button');
-    runButton.type = 'submit';
-    runButton.className = 'primary-button worker-command-run';
-    runButton.setAttribute('aria-label', 'Run command');
-    runButton.title = 'Run command';
-    const runIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    runIcon.setAttribute('viewBox', '0 0 24 24');
-    runIcon.setAttribute('fill', 'none');
-    runIcon.setAttribute('stroke', 'currentColor');
-    runIcon.setAttribute('stroke-width', '2.1');
-    runIcon.setAttribute('stroke-linecap', 'round');
-    runIcon.setAttribute('stroke-linejoin', 'round');
-    runIcon.setAttribute('aria-hidden', 'true');
-    [
-      ['polyline', { points: '4 17 10 11 4 5' }],
-      ['line', { x1: '12', y1: '19', x2: '20', y2: '19' }],
-    ].forEach(([tag, attributes]) => {
-      const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
-      Object.entries(attributes).forEach(([name, value]) => {
-        element.setAttribute(name, value);
-      });
-      runIcon.append(element);
-    });
-    runButton.append(runIcon);
-
-    const commandOutput = document.createElement('pre');
-    commandOutput.className = 'worker-command-output';
-    commandOutput.textContent = 'Ready.';
-
-    const workerBaseUrl = worker.workerUrl || state.workerUrl;
-    const defaultCommand = `curl -i "${workerBaseUrl}/likes?path=/path"`;
-
-    const resizeCommandInput = () => {
-      commandInput.style.height = 'auto';
-      commandInput.style.height = `${commandInput.scrollHeight}px`;
-      runButton.style.height = commandInput.style.height;
-    };
-
-    const tokenizeCommand = (value) => {
-      const tokens = [];
-      let current = '';
-      let quote = '';
-      let escaped = false;
-
-      Array.from(value).forEach((character) => {
-        if (escaped) {
-          current += character;
-          escaped = false;
-          return;
-        }
-        if (character === '\\') {
-          escaped = true;
-          return;
-        }
-        if (quote) {
-          if (character === quote) {
-            quote = '';
-          } else {
-            current += character;
-          }
-          return;
-        }
-        if (character === '"' || character === "'") {
-          quote = character;
-          return;
-        }
-        if (/\s/.test(character)) {
-          if (current) {
-            tokens.push(current);
-            current = '';
-          }
-          return;
-        }
-        current += character;
-      });
-
-      if (current) tokens.push(current);
-      return tokens;
-    };
-
-    const resolveCommandUrl = (value) => {
-      if (value.startsWith('/')) return endpoint(value);
-      return new URL(value).toString();
-    };
-
-    const parseWorkerCommand = (value) => {
-      const trimmed = value.trim();
-      if (!trimmed) throw new Error('Enter a Worker endpoint or curl command.');
-      if (!trimmed.startsWith('curl ')) {
-        return {
-          display: trimmed,
-          url: resolveCommandUrl(trimmed),
-          options: { method: 'GET', headers: { Accept: 'application/json' } },
-        };
-      }
-
-      const tokens = tokenizeCommand(trimmed).slice(1);
-      const headers = { Accept: 'application/json' };
-      let method = 'GET';
-      let body = null;
-      let url = '';
-
-      for (let index = 0; index < tokens.length; index += 1) {
-        const token = tokens[index];
-        if (token === '-i' || token === '--include' || token === '-s' || token === '--silent') continue;
-        if (token === '-X' || token === '--request') {
-          method = String(tokens[index + 1] || method).toUpperCase();
-          index += 1;
-          continue;
-        }
-        if (token.startsWith('-X') && token.length > 2) {
-          method = token.slice(2).toUpperCase();
-          continue;
-        }
-        if (token === '-H' || token === '--header') {
-          const header = String(tokens[index + 1] || '');
-          const separatorIndex = header.indexOf(':');
-          if (separatorIndex > 0) {
-            headers[header.slice(0, separatorIndex).trim()] = header.slice(separatorIndex + 1).trim();
-          }
-          index += 1;
-          continue;
-        }
-        if (token === '-d' || token === '--data' || token === '--data-raw' || token === '--data-binary') {
-          body = String(tokens[index + 1] || '');
-          if (method === 'GET') method = 'POST';
-          index += 1;
-          continue;
-        }
-        if (!token.startsWith('-')) url = token;
-      }
-
-      if (!url) throw new Error('The curl command needs a URL.');
-      return {
-        display: trimmed,
-        url: resolveCommandUrl(url),
-        options: { method, headers, ...(body === null ? {} : { body }) },
-      };
-    };
-
-    const formatWorkerResponse = async (response) => {
-      const contentType = response.headers.get('content-type') || '';
-      const responseBody = contentType.includes('application/json')
-        ? JSON.stringify(await response.json(), null, 2)
-        : await response.text();
-      const headers = Array.from(response.headers.entries())
-        .map(([name, value]) => `${name}: ${value}`)
-        .join('\n');
-      return [
-        `HTTP ${response.status} ${response.statusText}`.trim(),
-        headers,
-        '',
-        responseBody,
-      ].join('\n');
-    };
-
-    const runWorkerCommand = async (commandValue) => {
-      const command = parseWorkerCommand(commandValue);
-      const requestUrl = new URL(command.url);
-      const workerUrl = new URL(workerBaseUrl);
-      const hasHeader = (headerName) => Object.keys(command.options.headers)
-        .some((name) => name.toLowerCase() === headerName.toLowerCase());
-
-      if (requestUrl.origin === workerUrl.origin && requestUrl.pathname.startsWith('/admin/')) {
-        if (!hasHeader('Authorization') && !hasHeader('X-Admin-Key')) {
-          command.options.headers.Authorization = `Bearer ${state.adminKey}`;
-        }
-      }
-
-      if (command.options.body && !hasHeader('Content-Type')) {
-        command.options.headers['Content-Type'] = 'application/json';
-      }
-
-      const response = await fetch(requestUrl.toString(), command.options);
-      const output = await formatWorkerResponse(response);
-      if (!response.ok && response.status === 401) handleExpiredSession();
-      return output;
-    };
-
-    commandInput.value = defaultCommand;
-    resizeCommandInput();
-    commandInput.addEventListener('input', resizeCommandInput);
-
-    commandForm.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const commandPath = commandInput.value.trim() || defaultCommand;
-      runButton.disabled = true;
-      commandOutput.textContent = `Running ${commandPath}...`;
-      try {
-        commandOutput.textContent = await runWorkerCommand(commandPath);
-      } catch (error) {
-        commandOutput.textContent = error instanceof Error ? error.message : 'Command failed.';
-      } finally {
-        runButton.disabled = false;
-      }
-    });
-
-    commandForm.append(commandInput, runButton);
-    commandsDetails.append(commandsSummary, commandForm, commandOutput);
-    commandsItem.append(commandsDetails);
-
     const cloudflareItem = document.createElement('li');
     cloudflareItem.className = 'worker-item worker-menu-item';
     const cloudflareLink = document.createElement('a');
@@ -1081,7 +1270,7 @@
     cloudflareLink.append(cloudflareLabel, externalIcon);
     cloudflareItem.append(cloudflareLink);
 
-    elements.workerList.append(informationItem, commandsItem, cloudflareItem);
+    elements.workerList.append(informationItem, cloudflareItem);
   }
 
   function formatAuditAction(action) {
@@ -1163,7 +1352,18 @@
   }
 
   async function loadStats() {
-    const payload = await requestAdmin(`/admin/stats?range=${encodeURIComponent(state.statsRange)}`);
+    clampStatsStartDate();
+    const requestId = state.statsRequestId + 1;
+    state.statsRequestId = requestId;
+    const params = new URLSearchParams({ range: state.statsRange });
+    if (state.statsStartDate) params.set('start', state.statsStartDate);
+    const payload = await requestAdmin(`/admin/stats?${params.toString()}`);
+    if (requestId !== state.statsRequestId) return;
+    if (payload.selectedStart && !state.statsStartDatePinned) {
+      state.statsStartDate = payload.selectedStart;
+      state.statsCalendarMonth = parseDateInputValue(payload.selectedStart);
+      updateStatsDatePicker();
+    }
     renderStatsChart(payload);
   }
 
@@ -1171,6 +1371,11 @@
     const params = new URLSearchParams({
       limit: elements.auditLimit.value,
     });
+    const method = elements.auditMethod.value;
+    const path = elements.auditPath.value.trim();
+    if (method && method !== 'all') params.set('method', method);
+    if (path) params.set('path', path);
+    if (state.auditDate) params.set('date', state.auditDate);
     const payload = await requestAdmin(`/admin/audit-logs?${params.toString()}`);
     renderAuditLogs(payload.auditLogs || []);
   }
@@ -1217,9 +1422,16 @@
     });
   }
 
-  async function updateComment(id, action, destructiveLabel = '') {
+  async function updateComment(id, action, destructiveLabel = '', options = {}) {
     if (destructiveLabel) {
       const confirmed = await confirmCommentAction(destructiveLabel);
+      if (!confirmed) return;
+    }
+    if (destructiveLabel === 'delete' && options.hasReplies) {
+      const confirmed = await confirmCommentAction(
+        'delete replies',
+        'This comment has replies. Deleting it will permanently delete those replies as well.'
+      );
       if (!confirmed) return;
     }
 
@@ -1227,6 +1439,8 @@
       ? 'Approving'
       : destructiveLabel === 'delete'
         ? 'Deleting'
+        : destructiveLabel === 'hide'
+          ? 'Hiding'
         : 'Denying';
     setStatus(`${statusVerb} comment #${id}...`);
     await requestAdmin(`/admin/comments/${action}`, {
@@ -1236,16 +1450,23 @@
     await refreshAll();
   }
 
-  async function updateCommentSettings(deniedKeywords) {
+  async function updateCommentSettings(deniedKeywords, options = {}) {
     setStatus('Saving comment settings...');
     const payload = await requestAdmin('/admin/comment-settings', {
-      method: 'PUT',
+      method: 'POST',
       body: JSON.stringify({ deniedKeywords }),
     });
     state.deniedKeywords = payload.deniedKeywords || [];
+    clearPendingKeywordDelete(false);
     renderDeniedKeywordsPopover();
-    setKeywordPopoverOpen(false);
+    if (!options.keepPopoverOpen) {
+      setKeywordPopoverOpen(false);
+    }
     await refreshAll();
+    if (options.keepPopoverOpen) {
+      setKeywordPopoverOpen(true);
+      renderDeniedKeywordsPopover();
+    }
     setStatus('Comment settings saved.');
     window.setTimeout(() => setStatus(''), 1800);
   }
@@ -1256,12 +1477,37 @@
       elements.keywordPopoverInput.focus();
       return;
     }
+    if (keyword.length < 2) {
+      setStatus('Denied keywords must be at least 2 characters.', true);
+      elements.keywordPopoverInput.focus();
+      return;
+    }
 
     const nextKeywords = Array.from(new Set([...state.deniedKeywords, keyword]));
-    elements.keywordPopoverInput.value = '';
-    await updateCommentSettings(nextKeywords);
-    setKeywordPopoverOpen(true);
-    elements.keywordPopoverInput.focus();
+    try {
+      await updateCommentSettings(nextKeywords);
+      elements.keywordPopoverInput.value = '';
+      setKeywordPopoverOpen(true);
+      elements.keywordPopoverInput.focus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save denied keyword.';
+      setStatus(message, true);
+      setKeywordPopoverOpen(true);
+      elements.keywordPopoverInput.focus();
+    }
+  }
+
+  async function removeDeniedKeywordFromPopover(keyword) {
+    const nextKeywords = state.deniedKeywords.filter((item) => item !== keyword);
+    try {
+      await updateCommentSettings(nextKeywords, { keepPopoverOpen: true });
+      elements.keywordPopoverInput.focus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove denied keyword.';
+      setStatus(message, true);
+      setKeywordPopoverOpen(true);
+      elements.keywordPopoverInput.focus();
+    }
   }
 
   async function refreshAll() {
@@ -1342,29 +1588,93 @@
       closeConfirmPrompt(false);
     } else if (event.key === 'Escape' && !elements.authOverlay.hidden) {
       closeAuthPrompt();
+    } else if (event.key === 'Escape' && !elements.statsDatePopover.hidden) {
+      setStatsDatePopoverOpen(false);
+      elements.statsDateToggle.focus();
+    } else if (event.key === 'Escape' && !elements.auditDatePopover.hidden) {
+      setAuditDatePopoverOpen(false);
+      elements.auditDateToggle.focus();
     } else if (event.key === 'Escape' && !elements.keywordPopover.hidden) {
+      if (state.pendingKeywordDelete) {
+        clearPendingKeywordDelete();
+        return;
+      }
       setKeywordPopoverOpen(false);
       elements.keywordPopoverToggle.focus();
     }
   });
   document.addEventListener('click', (event) => {
+    if (!elements.statsDatePopover.hidden && !event.target.closest('[data-stats-date-picker]')) {
+      setStatsDatePopoverOpen(false);
+    }
+    if (!elements.auditDatePopover.hidden && !event.target.closest('[data-audit-date-picker]')) {
+      setAuditDatePopoverOpen(false);
+    }
     if (elements.keywordPopover.hidden) return;
-    if (event.target.closest('.comment-keyword-filter')) return;
+    const isKeywordPopoverClick = elements.keywordPopover.contains(event.target);
+    const isKeywordToggleClick = elements.keywordPopoverToggle.contains(event.target);
+    if (isKeywordPopoverClick || isKeywordToggleClick) {
+      if (state.pendingKeywordDelete && !event.target.closest('[data-denied-keyword]')) {
+        clearPendingKeywordDelete();
+      }
+      return;
+    }
     setKeywordPopoverOpen(false);
   });
   elements.refresh.addEventListener('click', refreshAll);
+  elements.statsDateToggle.addEventListener('click', () => {
+    setStatsDatePopoverOpen(elements.statsDateToggle.getAttribute('aria-expanded') !== 'true');
+  });
+  elements.statsDatePrev.addEventListener('click', () => shiftStatsCalendarMonth(-1));
+  elements.statsDateNext.addEventListener('click', () => shiftStatsCalendarMonth(1));
+  elements.auditDateToggle.addEventListener('click', () => {
+    setAuditDatePopoverOpen(elements.auditDateToggle.getAttribute('aria-expanded') !== 'true');
+  });
+  elements.auditDatePrev.addEventListener('click', () => shiftAuditCalendarMonth(-1));
+  elements.auditDateNext.addEventListener('click', () => shiftAuditCalendarMonth(1));
   elements.keywordPopoverToggle.addEventListener('click', () => {
     setKeywordPopoverOpen(elements.keywordPopoverToggle.getAttribute('aria-expanded') !== 'true');
   });
+  elements.keywordPopover.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (state.pendingKeywordDelete && !event.target.closest('[data-denied-keyword]')) {
+      clearPendingKeywordDelete();
+    }
+  });
   elements.keywordPopoverForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    clearPendingKeywordDelete(false);
     await addDeniedKeywordFromPopover();
+  });
+  elements.keywordPopoverList.addEventListener('click', async (event) => {
+    const badge = event.target.closest('[data-denied-keyword]');
+    if (!badge) {
+      if (state.pendingKeywordDelete) {
+        clearPendingKeywordDelete();
+      }
+      return;
+    }
+
+    const keyword = badge.dataset.deniedKeyword || '';
+    if (!keyword) return;
+
+    if (state.pendingKeywordDelete === keyword) {
+      await removeDeniedKeywordFromPopover(keyword);
+      return;
+    }
+
+    setPendingKeywordDelete(keyword);
+    Array.from(elements.keywordPopoverList.querySelectorAll('[data-denied-keyword]'))
+      .find((item) => item.dataset.deniedKeyword === keyword)
+      ?.focus();
   });
   elements.statsRangeButtons.forEach((button) => {
     button.setAttribute('aria-pressed', button.classList.contains('is-active') ? 'true' : 'false');
     button.addEventListener('click', async () => {
       state.statsRange = button.dataset.statsRange || '30d';
+      state.statsStartDatePinned = false;
       updateStatsRangeButtons();
+      setDefaultStatsStartDate(true);
       await safeLoadStats();
     });
   });
@@ -1389,7 +1699,12 @@
     window.clearTimeout(elements.likesPath.searchTimeout);
     elements.likesPath.searchTimeout = window.setTimeout(safeLoadLikes, 250);
   });
+  elements.auditMethod.addEventListener('change', safeLoadAuditLogs);
   elements.auditLimit.addEventListener('change', safeLoadAuditLogs);
+  elements.auditPath.addEventListener('input', () => {
+    window.clearTimeout(elements.auditPath.searchTimeout);
+    elements.auditPath.searchTimeout = window.setTimeout(safeLoadAuditLogs, 250);
+  });
   elements.collapseToggles.forEach((button) => {
     setPanelCollapsed(button, button.getAttribute('aria-expanded') !== 'true');
     button.addEventListener('click', () => togglePanel(button));
@@ -1398,6 +1713,8 @@
   applyTheme(state.theme);
   updateLikesDirectionLabel();
   updateStatsRangeButtons();
+  setDefaultStatsStartDate(true);
+  setDefaultAuditDate(true);
   setSessionWorker();
   renderDeniedKeywordsPopover();
 

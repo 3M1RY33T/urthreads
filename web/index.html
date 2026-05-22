@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>thread-cf</title>
-  <link rel="stylesheet" href="styles.css?v=69" />
+  <link rel="stylesheet" href="styles.css?v=99" />
 </head>
 <body>
   <div class="app-shell">
@@ -111,11 +111,46 @@
         <div class="stats-chart-body">
           <div class="panel-body-filters stats-chart-filter-row">
             <div class="stats-chart-filters">
-              <input class="stats-chart-date" type="date" data-stats-start-date aria-label="Engagement trend start date" />
+              <div class="stats-date-picker" data-stats-date-picker>
+                <button class="stats-date-button" type="button" data-stats-date-toggle aria-expanded="false" aria-controls="stats-date-popover">
+                  <span data-stats-date-label>Pick date</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M8 2v4"></path>
+                    <path d="M16 2v4"></path>
+                    <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                    <path d="M3 10h18"></path>
+                  </svg>
+                </button>
+                <div class="stats-date-popover" id="stats-date-popover" data-stats-date-popover hidden>
+                  <div class="stats-date-calendar-header">
+                    <button class="icon-button stats-date-nav" type="button" data-stats-date-prev aria-label="Previous month" title="Previous month">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M15 18l-6-6 6-6"></path>
+                      </svg>
+                    </button>
+                    <div class="stats-date-month" data-stats-date-month></div>
+                    <button class="icon-button stats-date-nav" type="button" data-stats-date-next aria-label="Next month" title="Next month">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M9 18l6-6-6-6"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="stats-date-weekdays" aria-hidden="true">
+                    <span>Sun</span>
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                  </div>
+                  <div class="stats-date-grid" data-stats-date-grid></div>
+                </div>
+              </div>
               <div class="stats-chart-range" aria-label="Engagement trend range">
                 <button type="button" data-stats-range="1d">1D</button>
-                <button type="button" data-stats-range="5d">5D</button>
-                <button type="button" data-stats-range="15d">15D</button>
+                <button type="button" data-stats-range="7d">7D</button>
+                <button type="button" data-stats-range="14d">14D</button>
                 <button type="button" data-stats-range="30d" class="is-active">30D</button>
               </div>
             </div>
@@ -165,7 +200,7 @@
                   <div class="keyword-popover" id="keyword-popover" data-keyword-popover hidden>
                     <div class="keyword-popover-title">Denied keywords</div>
                     <form class="keyword-popover-form" data-keyword-popover-form>
-                      <input data-keyword-popover-input type="text" placeholder="Add keyword" />
+                      <input data-keyword-popover-input type="text" placeholder="Add keyword" minlength="2" />
                       <button class="icon-button keyword-popover-add" type="submit" aria-label="Add denied keyword" title="Add denied keyword">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                           <path d="M12 5v14"></path>
@@ -179,6 +214,7 @@
                 <select data-comment-status>
                   <option value="pending">Pending</option>
                   <option value="approved">Approved</option>
+                  <option value="hidden">Hidden</option>
                   <option value="rejected">Rejected</option>
                   <option value="all">All</option>
                 </select>
@@ -273,13 +309,6 @@
                 <h3 id="audit-heading">Activity Logs</h3>
               </div>
               <div class="panel-header-actions">
-                <div class="filters" data-collapsible-extra>
-                  <select data-audit-limit>
-                    <option value="25" selected>25</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                  </select>
-                </div>
                 <button
                   class="panel-toggle"
                   type="button"
@@ -296,6 +325,60 @@
               </div>
             </div>
             <div class="panel-body" id="audit-panel-body" data-collapsible-body hidden>
+              <div class="panel-body-filters">
+                <div class="filters audit-filters">
+                  <div class="stats-date-picker" data-audit-date-picker>
+                    <button class="stats-date-button" type="button" data-audit-date-toggle aria-expanded="false" aria-controls="audit-date-popover">
+                      <span data-audit-date-label>Pick date</span>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M8 2v4"></path>
+                        <path d="M16 2v4"></path>
+                        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                        <path d="M3 10h18"></path>
+                      </svg>
+                    </button>
+                    <div class="stats-date-popover" id="audit-date-popover" data-audit-date-popover hidden>
+                      <div class="stats-date-calendar-header">
+                        <button class="icon-button stats-date-nav" type="button" data-audit-date-prev aria-label="Previous month" title="Previous month">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M15 18l-6-6 6-6"></path>
+                          </svg>
+                        </button>
+                        <div class="stats-date-month" data-audit-date-month></div>
+                        <button class="icon-button stats-date-nav" type="button" data-audit-date-next aria-label="Next month" title="Next month">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M9 18l6-6-6-6"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      <div class="stats-date-weekdays" aria-hidden="true">
+                        <span>Sun</span>
+                        <span>Mon</span>
+                        <span>Tue</span>
+                        <span>Wed</span>
+                        <span>Thu</span>
+                        <span>Fri</span>
+                        <span>Sat</span>
+                      </div>
+                      <div class="stats-date-grid" data-audit-date-grid></div>
+                    </div>
+                  </div>
+                  <select data-audit-method aria-label="Activity log request type">
+                    <option value="all" selected>All requests</option>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                  <input data-audit-path type="text" placeholder="/path" />
+                  <select data-audit-limit aria-label="Activity log result count">
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                </div>
+              </div>
               <ul class="audit-list" data-audit-list></ul>
             </div>
           </section>
@@ -379,6 +462,6 @@
       </div>
     </form>
   </div>
-  <script src="dashboard.js?v=34"></script>
+  <script src="dashboard.js?v=56"></script>
 </body>
 </html>

@@ -363,7 +363,7 @@ Returns page likes, comment likes, comment status counts, and recent pending com
 
 **GET** `/admin/comments?status=pending&limit=50`
 
-Returns comments for moderation. `status` can be `pending`, `approved`, `rejected`, or `all`.
+Returns comments for moderation. `status` can be `pending`, `approved`, `hidden`, `rejected`, or `all`.
 
 **POST** `/admin/comments/approve`
 
@@ -372,6 +372,24 @@ Returns comments for moderation. `status` can be `pending`, `approved`, `rejecte
 ```
 
 **POST** `/admin/comments/reject`
+
+```json
+{ "id": 5 }
+```
+
+**POST** `/admin/comments/hide`
+
+```json
+{ "id": 5 }
+```
+
+**POST** `/admin/comments/unhide`
+
+```json
+{ "id": 5 }
+```
+
+**POST** `/admin/comments/delete`
 
 ```json
 { "id": 5 }
@@ -389,13 +407,13 @@ Returns the current Worker URL and configured metadata. Cloudflare account-wide 
 
 Returns daily engagement trend buckets for the dashboard graph. New installs track page likes, comment likes, submitted comments, and moderation actions through append-only analytics events.
 
-**GET/PUT** `/admin/comment-settings`
+**GET/POST/PUT** `/admin/comment-settings`
 
 Reads or replaces the denied keyword list used for automatic comment rejection. Matching is case-insensitive against comment text and author name. Public comment submissions that match are stored as rejected comments and receive a neutral pending response.
 
-**GET** `/admin/audit-logs?limit=25`
+**GET** `/admin/audit-logs?limit=25&method=POST&path=/blog&date=2026-05-21`
 
-Returns recent protected dashboard activity. Audit entries include action, method, path, response status, client IP, user agent, timestamp, sanitized details, and a short admin-key fingerprint. Raw admin keys and request bodies are not stored.
+Returns protected dashboard activity, optionally filtered by request method, path search, and a selected UTC date. Audit entries include action, method, path, response status, client IP, user agent, timestamp, sanitized details, and a short admin-key fingerprint. Raw admin keys and request bodies are not stored.
 
 **GET** `/comments/like?commentId=123`
 
@@ -435,6 +453,7 @@ CREATE TABLE post_comments (
   content TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'approved', 'rejected')),
+  hidden_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

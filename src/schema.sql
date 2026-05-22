@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS post_comments (
   content TEXT NOT NULL,
   likes_count INTEGER NOT NULL DEFAULT 0 CHECK (likes_count >= 0),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  hidden_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
