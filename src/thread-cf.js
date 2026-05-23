@@ -7,6 +7,7 @@
 const moderationCli = require("./cli");
 const adminKeyCli = require("./admin-key");
 const adminSessionCli = require("./admin-session");
+const envConfigCli = require("./env-config");
 const setupEnvCli = require("./setup-env");
 
 const MODERATION_COMMANDS = new Set([
@@ -34,7 +35,6 @@ const MODERATION_COMMANDS = new Set([
 const SETUP_COMMANDS = new Set([
   "setup-env",
   "setup:env",
-  "env",
   "init",
 ]);
 
@@ -51,6 +51,14 @@ const ADMIN_SESSION_COMMANDS = new Set([
   "admin-session-ttl",
 ]);
 
+const ENV_COMMANDS = new Set([
+  "env",
+  "origin",
+  "origins",
+  "allowed-origin",
+  "allowed-origins",
+]);
+
 function showHelp() {
   process.stdout.write(`
 thread-cf - Cloudflare Likes & Comments
@@ -61,6 +69,9 @@ USAGE:
 SETUP COMMANDS:
   setup-env            Create a local .env file with guided prompts
   init                 Alias for setup-env
+  env                  Manage local .env values
+  env add-origin       Add exact allowed origins to .env
+  env open             Open .env in the system text viewer
   admin-key            Generate/rotate ADMIN_API_KEY in .env
   admin-session        Configure ADMIN_SESSION_TTL_SECONDS in .env
 
@@ -94,6 +105,8 @@ HELP:
 
 EXAMPLES:
   thread-cf setup-env
+  thread-cf env add-origin http://localhost:8000
+  thread-cf env open
   thread-cf admin-key
   thread-cf admin-key --expires 30d
   thread-cf admin-session --ttl 1h
@@ -129,6 +142,17 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (ENV_COMMANDS.has(command)) {
+    let envArgs = argv.slice(1);
+    if (command !== "env") {
+      envArgs = envArgs[0] === "add"
+        ? ["add-origin", ...envArgs.slice(1)]
+        : ["add-origin", ...envArgs];
+    }
+    await envConfigCli.main(envArgs, { commandName: command === "env" ? "thread-cf env" : `thread-cf ${command}` });
+    return;
+  }
+
   if (command === "comments") {
     await moderationCli.main(argv.slice(1), { commandName: "thread-cf comments" });
     return;
@@ -154,6 +178,7 @@ if (require.main === module) {
 module.exports = {
   ADMIN_KEY_COMMANDS,
   ADMIN_SESSION_COMMANDS,
+  ENV_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
   main,

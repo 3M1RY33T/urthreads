@@ -18,10 +18,9 @@
     ".env.example",
     "client/",
     "config/",
-    "dashboard/",
-    "docs/",
     "examples/",
     "src/",
+    "web/",
     "README.md",
     "LICENSE"
   ],

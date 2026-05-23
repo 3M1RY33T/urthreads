@@ -5,6 +5,7 @@ const { test } = require("node:test");
 const {
   ADMIN_KEY_COMMANDS,
   ADMIN_SESSION_COMMANDS,
+  ENV_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
 } = require("../src/thread-cf");
@@ -24,6 +25,8 @@ test("exposes setup and moderation command groups", () => {
   assert.strictEqual(ADMIN_KEY_COMMANDS.has("rotate-admin-key"), true);
   assert.strictEqual(ADMIN_SESSION_COMMANDS.has("admin-session"), true);
   assert.strictEqual(ADMIN_SESSION_COMMANDS.has("session-ttl"), true);
+  assert.strictEqual(ENV_COMMANDS.has("env"), true);
+  assert.strictEqual(ENV_COMMANDS.has("origins"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("pending"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("approve"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("create-comment"), true);
@@ -36,6 +39,7 @@ test("prints top-level help", () => {
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("thread-cf - Cloudflare Likes & Comments"));
   assert.ok(result.stdout.includes("setup-env"));
+  assert.ok(result.stdout.includes("env add-origin"));
   assert.ok(result.stdout.includes("admin-key"));
   assert.ok(result.stdout.includes("admin-session"));
   assert.ok(result.stdout.includes("approve <id>"));
@@ -48,6 +52,14 @@ test("routes setup help through thread-cf", () => {
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Cloudflare Likes & Comments .env Setup"));
   assert.ok(result.stdout.includes("thread-cf setup-env"));
+});
+
+test("routes env help through thread-cf", () => {
+  const result = runThreadCf(["env", "--help"]);
+
+  assert.strictEqual(result.status, 0);
+  assert.ok(result.stdout.includes("Environment Config"));
+  assert.ok(result.stdout.includes("thread-cf env"));
 });
 
 test("routes admin key help through thread-cf", () => {
