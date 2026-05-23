@@ -264,9 +264,9 @@ DESCRIPTION:
   clipboard tooling is available; it is not printed to terminal output.
 
 EXAMPLES:
-  thread-cf admin-key
-  thread-cf admin-key --expires 30d
-  thread-cf admin-key --expires never
+  urthreads admin-key
+  urthreads admin-key --expires 30d
+  urthreads admin-key --expires never
 
 `);
 }

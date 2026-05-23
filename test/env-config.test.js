@@ -49,7 +49,7 @@ test("adds allowed origins to env file", async () => {
   await main(
     ["add-origin", "http://localhost:8000", "https://example.com", "--env", envPath],
     {
-      commandName: "thread-cf env",
+      commandName: "urthreads env",
       output: { write: (message) => writes.push(message) },
     }
   );
@@ -66,7 +66,7 @@ test("sets and hides sensitive env values in command output", async () => {
   const writes = [];
 
   await main(["set", "ADMIN_API_KEY", "secret-value", "--env", envPath], {
-    commandName: "thread-cf env",
+    commandName: "urthreads env",
     output: { write: (message) => writes.push(message) },
   });
 
@@ -83,7 +83,7 @@ test("opens env file with platform viewer", async () => {
   const calls = [];
 
   await main(["open", "--env", envPath, "--viewer", "viewer"], {
-    commandName: "thread-cf env",
+    commandName: "urthreads env",
     output: { write: () => {} },
     opener: (command, args) => {
       calls.push({ command, args });

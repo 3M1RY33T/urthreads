@@ -1,49 +1,52 @@
-name = "likes-and-comments-worker"
+name = "urthreads-worker"
 main = "src/worker.js"
 compatibility_date = "2026-05-20"
 account_id = "your-account-id"
 workers_dev = true
 
 [env.production]
-name = "likes-and-comments-worker-prod"
+name = "urthreads-worker-prod"
 
 [env.staging]
-name = "likes-and-comments-worker-staging"
+name = "urthreads-worker-staging"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "likes-and-comments"
+database_name = "your-threads"
 database_id = "00000000-0000-0000-0000-000000000000"  # Replace with your D1 ID
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "likes-and-comments-prod"
+database_name = "your-threads-prod"
 database_id = "00000000-0000-0000-0000-000000000000"  # Replace with production D1 ID
 
 [[env.staging.d1_databases]]
 binding = "DB"
-database_name = "likes-and-comments-staging"
+database_name = "your-threads-staging"
 database_id = "00000000-0000-0000-0000-000000000000"  # Replace with staging D1 ID
 
 [vars]
 ALLOWED_ORIGINS = "https://example.com"
-WORKER_NAME = "likes-and-comments-worker"
-D1_DATABASE_NAME = "likes-and-comments"
+WORKER_NAME = "urthreads-worker"
+D1_DATABASE_NAME = "your-threads"
 # Optional: ISO timestamp. Empty means the admin key never expires.
 ADMIN_API_KEY_EXPIRES_AT = ""
 # Optional: dashboard admin session TTL in seconds. Allowed range is 900-3600.
 ADMIN_SESSION_TTL_SECONDS = "3600"
+MAX_COMMENTS_PER_POST = "100"
 
 [env.production.vars]
 ALLOWED_ORIGINS = "https://example.com"
-WORKER_NAME = "likes-and-comments-worker-prod"
-D1_DATABASE_NAME = "likes-and-comments-prod"
+WORKER_NAME = "urthreads-worker-prod"
+D1_DATABASE_NAME = "your-threads-prod"
 ADMIN_API_KEY_EXPIRES_AT = ""
 ADMIN_SESSION_TTL_SECONDS = "3600"
+MAX_COMMENTS_PER_POST = "100"
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://staging.example.com,http://localhost:3000"
-WORKER_NAME = "likes-and-comments-worker-staging"
-D1_DATABASE_NAME = "likes-and-comments-staging"
+WORKER_NAME = "urthreads-worker-staging"
+D1_DATABASE_NAME = "your-threads-staging"
 ADMIN_API_KEY_EXPIRES_AT = ""
 ADMIN_SESSION_TTL_SECONDS = "3600"
+MAX_COMMENTS_PER_POST = "100"

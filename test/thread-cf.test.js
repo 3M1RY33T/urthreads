@@ -8,6 +8,7 @@ const {
   ENV_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
+  WRANGLER_COMMANDS,
 } = require("../src/thread-cf");
 
 const threadCfPath = path.join(__dirname, "..", "src", "thread-cf.js");
@@ -27,6 +28,8 @@ test("exposes setup and moderation command groups", () => {
   assert.strictEqual(ADMIN_SESSION_COMMANDS.has("session-ttl"), true);
   assert.strictEqual(ENV_COMMANDS.has("env"), true);
   assert.strictEqual(ENV_COMMANDS.has("origins"), true);
+  assert.strictEqual(WRANGLER_COMMANDS.has("wrangler-init"), true);
+  assert.strictEqual(WRANGLER_COMMANDS.has("wrangler"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("pending"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("approve"), true);
   assert.strictEqual(MODERATION_COMMANDS.has("create-comment"), true);
@@ -37,8 +40,9 @@ test("prints top-level help", () => {
   const result = runThreadCf(["--help"]);
 
   assert.strictEqual(result.status, 0);
-  assert.ok(result.stdout.includes("thread-cf - Cloudflare Likes & Comments"));
+  assert.ok(result.stdout.includes("urthreads - Cloudflare Likes & Comments"));
   assert.ok(result.stdout.includes("setup-env"));
+  assert.ok(result.stdout.includes("wrangler-init"));
   assert.ok(result.stdout.includes("env add-origin"));
   assert.ok(result.stdout.includes("admin-key"));
   assert.ok(result.stdout.includes("admin-session"));
@@ -46,42 +50,50 @@ test("prints top-level help", () => {
   assert.ok(result.stdout.includes("set-like <path> <n>"));
 });
 
-test("routes setup help through thread-cf", () => {
+test("routes setup help through urthreads", () => {
   const result = runThreadCf(["setup-env", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Cloudflare Likes & Comments .env Setup"));
-  assert.ok(result.stdout.includes("thread-cf setup-env"));
+  assert.ok(result.stdout.includes("urthreads setup-env"));
 });
 
-test("routes env help through thread-cf", () => {
+test("routes env help through urthreads", () => {
   const result = runThreadCf(["env", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Environment Config"));
-  assert.ok(result.stdout.includes("thread-cf env"));
+  assert.ok(result.stdout.includes("urthreads env"));
 });
 
-test("routes admin key help through thread-cf", () => {
+test("routes wrangler help through urthreads", () => {
+  const result = runThreadCf(["wrangler", "--help"]);
+
+  assert.strictEqual(result.status, 0);
+  assert.ok(result.stdout.includes("Wrangler Config"));
+  assert.ok(result.stdout.includes("urthreads wrangler"));
+});
+
+test("routes admin key help through urthreads", () => {
   const result = runThreadCf(["admin-key", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Admin Key Generator"));
-  assert.ok(result.stdout.includes("thread-cf admin-key"));
+  assert.ok(result.stdout.includes("urthreads admin-key"));
 });
 
-test("routes admin session help through thread-cf", () => {
+test("routes admin session help through urthreads", () => {
   const result = runThreadCf(["admin-session", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Admin Session Config"));
-  assert.ok(result.stdout.includes("thread-cf admin-session"));
+  assert.ok(result.stdout.includes("urthreads admin-session"));
 });
 
-test("routes comment management help through thread-cf", () => {
+test("routes comment management help through urthreads", () => {
   const result = runThreadCf(["comments", "help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Comment Management Tool"));
-  assert.ok(result.stdout.includes("thread-cf comments approve 5"));
+  assert.ok(result.stdout.includes("urthreads comments approve 5"));
 });

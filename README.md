@@ -1,8 +1,11 @@
-# thread-cf
+| *> Overview <* | [Dashboard](./web/DASHBOARD.md) | [Configuration And Environment](./config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](./src/PROGRAM_LOGIC.md) | [Tests](./test/TESTS.md) |
+| --- | --- | --- | --- | --- |
 
-`thread-cf` is a lightweight engagement system for static websites. It adds page likes, threaded comments, moderation, dashboard analytics, and admin tooling on top of Cloudflare Workers and D1.
+# Urthreads
 
-It is designed for blogs, portfolios, documentation sites, and other static pages that need interaction without running a traditional server.
+`urthreads` is self-hosted software for adding engagement features to static websites. It is not a hosted service: you deploy the Worker to your own Cloudflare account, connect it to your own D1 database, and manage the dashboard with your own admin key.
+
+It adds page likes, threaded comments, moderation, dashboard analytics, and admin tooling for blogs, portfolios, documentation sites, and other static pages that need interaction without running a traditional server.
 
 ## What It Does
 
@@ -14,54 +17,61 @@ It is designed for blogs, portfolios, documentation sites, and other static page
 - Provides CLI tools for setup, environment management, admin keys, sessions, likes, comments, stats, and D1 health checks.
 - Uses an `HttpOnly`, `Secure` admin session cookie for the dashboard after the admin key is submitted once.
 
-## Project Layout
-
-- [src](./src/PROGRAM_LOGIC.md): Worker logic, API behavior, database schema, admin session model, audit logs, and CLI modules.
-- [config](./config/CONFIGURATION_AND_ENVIRONMENT.md): `.env`, Wrangler configuration, allowed origins, deployment variables, and environment CLI commands.
-- [web](./web/DASHBOARD.md): Static dashboard usage, session flow, moderation UI, graph filters, logs, and responsive behavior.
-- [test](./test/TESTS.md): Test coverage, how to run tests, and what local checks exist.
-- [client](./client): Browser scripts for likes and comments.
-- [examples](./examples): Standalone HTML, Jekyll, and dashboard examples.
-
 ## Quick Start
 
-Install dependencies and create a D1 database:
+The recommended path is to use the published package CLI. It keeps setup boring in the best way: it asks for the Cloudflare, D1, Worker, CORS, and dashboard values it needs, then writes a local `.env` and can create `wrangler.toml` for you.
+
+```bash
+npm install -g urthreads
+wrangler login
+wrangler d1 create your-threads
+urthreads setup-env
+```
+
+The guided setup asks for:
+
+- Cloudflare account ID
+- optional Cloudflare API token for local tooling
+- D1 database name and ID
+- Worker name and Worker URL
+- allowed browser origins
+- maximum comments returned per post
+
+It writes a local `.env` with restricted file permissions where your platform supports them.
+It also offers to create `wrangler.toml` from the same answers. You can create it separately later with:
+
+```bash
+urthreads wrangler-init
+```
+
+Adjust Wrangler values without opening the file:
+
+```bash
+urthreads wrangler set account_id your-account-id
+urthreads wrangler set database_id your-d1-database-id
+urthreads wrangler set ALLOWED_ORIGINS https://example.com
+```
+
+Initialize the database schema and deploy:
+
+```bash
+wrangler d1 execute your-threads --remote --file=src/schema.sql
+wrangler deploy
+```
+
+### Manual Repository Setup
+
+If you download or clone the repository instead of using the published package, install dependencies and run the same setup command through npm:
 
 ```bash
 npm install
-wrangler login
-wrangler d1 create likes-and-comments
-```
-
-Initialize the database schema:
-
-```bash
-wrangler d1 execute likes-and-comments --remote --file=src/schema.sql
-```
-
-Create local environment values:
-
-```bash
 npm run setup:env
 ```
 
-Copy and edit the Wrangler config:
+The local npm script calls the same CLI flow as `urthreads setup-env`. You can also run the repo entrypoint directly:
 
 ```bash
-cp config/wrangler.toml.example wrangler.toml
-```
-
-Set exact browser origins. For local dashboard testing, for example:
-
-```bash
-thread-cf env add-origin http://localhost:8000
-thread-cf env add-origin http://[::1]:8000
-```
-
-Deploy:
-
-```bash
-wrangler deploy
+node src/thread-cf.js setup-env
 ```
 
 ## Website Usage
@@ -114,9 +124,9 @@ Complete examples live in [examples](./examples).
 Generate an admin key:
 
 ```bash
-thread-cf admin-key
+urthreads admin-key
 wrangler secret put ADMIN_API_KEY
-thread-cf admin-session --ttl 1h
+urthreads admin-session --ttl 1h
 ```
 
 Open [web/index.html](./web/index.html), enter the Worker URL and admin key, and the dashboard will create a short-lived cookie session.
@@ -126,17 +136,19 @@ Important: dashboard refresh persistence requires the dashboard's exact browser 
 ## Useful CLI Commands
 
 ```bash
-thread-cf setup-env
-thread-cf env add-origin https://example.com
-thread-cf env open
-thread-cf admin-key
-thread-cf admin-session --ttl 1h
-thread-cf pending
-thread-cf approve 5 --execute
-thread-cf reject 5 --execute
-thread-cf list-likes
-thread-cf stats
-thread-cf health
+urthreads setup-env                       # Create local .env interactively
+urthreads wrangler-init                   # Create wrangler.toml interactively
+urthreads wrangler set database_id d1-id  # Update wrangler.toml D1 ID
+urthreads env add-origin https://example.com # Add an allowed browser origin
+urthreads env open                        # Open .env in a viewer
+urthreads admin-key                       # Generate or rotate admin key
+urthreads admin-session --ttl 1h          # Set dashboard session lifetime
+urthreads pending                         # List pending comments
+urthreads approve 5 --execute             # Approve comment 5
+urthreads reject 5 --execute              # Reject comment 5
+urthreads list-likes                      # List liked paths
+urthreads stats                           # Show database stats
+urthreads health                          # Run D1 health check
 ```
 
 Most D1 management commands print the Wrangler command by default. Add `--execute` or `--run` to run it immediately.

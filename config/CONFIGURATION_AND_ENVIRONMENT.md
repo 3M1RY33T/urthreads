@@ -1,3 +1,6 @@
+| [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | *> Configuration And Environment <* | [Program Logic](../src/PROGRAM_LOGIC.md) | [Tests](../test/TESTS.md) |
+| --- | --- | --- | --- | --- |
+
 # Configuration And Environment
 
 This directory contains environment templates for local setup and Wrangler deployment.
@@ -38,7 +41,7 @@ Do not place Cloudflare account API tokens or raw admin keys in browser code.
 Run:
 
 ```bash
-thread-cf setup-env
+urthreads setup-env
 ```
 
 or inside this repo:
@@ -56,7 +59,13 @@ The setup flow asks for:
 - allowed browser origins
 - maximum comments returned per post
 
-It writes a local `.env` with `0600` permissions where supported.
+It writes a local `.env` with `0600` permissions where supported. It also offers to create `wrangler.toml` from the same answers.
+
+Create only `wrangler.toml`:
+
+```bash
+urthreads wrangler-init
+```
 
 ## Required Values
 
@@ -65,10 +74,10 @@ It writes a local `.env` with `0600` permissions where supported.
 ```env
 CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
-D1_DATABASE_NAME=likes-and-comments
+D1_DATABASE_NAME=your-threads
 D1_DATABASE_ID=your-d1-database-id
-WORKER_NAME=likes-and-comments-worker
-WORKER_URL=https://likes-and-comments-worker.your-subdomain.workers.dev
+WORKER_NAME=urthreads-worker
+WORKER_URL=https://urthreads-worker.your-subdomain.workers.dev
 ```
 
 `CLOUDFLARE_API_TOKEN` is optional if you use `wrangler login` locally.
@@ -86,9 +95,9 @@ Use exact origins. Do not use `*` for dashboard deployments. Browser cookie sess
 Add origins with:
 
 ```bash
-thread-cf env add-origin http://localhost:8000
-thread-cf env add-origin http://[::1]:8000
-thread-cf env add-origin https://mysite.com https://www.mysite.com --target prod
+urthreads env add-origin http://localhost:8000
+urthreads env add-origin http://[::1]:8000
+urthreads env add-origin https://mysite.com https://www.mysite.com --target prod
 ```
 
 The first real origin replaces `*`. Later origins are appended without duplicates.
@@ -102,8 +111,8 @@ Targets:
 ## Client Endpoint Values
 
 ```env
-LIKES_ENDPOINT=https://likes-and-comments-worker.your-subdomain.workers.dev/likes
-COMMENTS_ENDPOINT=https://likes-and-comments-worker.your-subdomain.workers.dev/comments
+LIKES_ENDPOINT=https://urthreads-worker.your-subdomain.workers.dev/likes
+COMMENTS_ENDPOINT=https://urthreads-worker.your-subdomain.workers.dev/comments
 ```
 
 These are convenience values for examples and local integration. The browser still reads the endpoint you configure in your page through `window.LIKES_CONFIG` and `window.COMMENTS_CONFIG`.
@@ -119,8 +128,8 @@ ADMIN_SESSION_TTL_SECONDS=3600
 Generate or rotate the admin key:
 
 ```bash
-thread-cf admin-key
-thread-cf admin-key --expires 30d
+urthreads admin-key
+urthreads admin-key --expires 30d
 ```
 
 The command writes the key to `.env` and copies the raw key to your clipboard when possible. It does not print the raw key.
@@ -134,8 +143,8 @@ wrangler secret put ADMIN_API_KEY
 Configure dashboard session lifetime:
 
 ```bash
-thread-cf admin-session --ttl 1h
-thread-cf admin-session --ttl 30m
+urthreads admin-session --ttl 1h
+urthreads admin-session --ttl 30m
 ```
 
 `ADMIN_SESSION_TTL_SECONDS` is clamped between 900 and 3600 seconds by the Worker.
@@ -150,24 +159,24 @@ This controls how many approved comments the public endpoint returns for a post.
 
 ## Environment CLI
 
-The `thread-cf env` command manages local `.env` values without exposing secrets by default.
+The `urthreads env` command manages local `.env` values without exposing secrets by default.
 
 ```bash
-thread-cf env add-origin <origin...> [--target default|staging|prod]
-thread-cf env set <KEY> <VALUE>
-thread-cf env get <KEY>
-thread-cf env list
-thread-cf env open
+urthreads env add-origin <origin...> [--target default|staging|prod]
+urthreads env set <KEY> <VALUE>
+urthreads env get <KEY>
+urthreads env list
+urthreads env open
 ```
 
 Examples:
 
 ```bash
-thread-cf env add-origin http://localhost:8000
-thread-cf env set WORKER_URL https://my-worker.workers.dev
-thread-cf env get ALLOWED_ORIGINS
-thread-cf env list
-thread-cf env open
+urthreads env add-origin http://localhost:8000
+urthreads env set WORKER_URL https://my-worker.workers.dev
+urthreads env get ALLOWED_ORIGINS
+urthreads env list
+urthreads env open
 ```
 
 Sensitive keys containing words like `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `CREDENTIAL` are hidden in command output unless `--show-sensitive` is used.
@@ -175,7 +184,7 @@ Sensitive keys containing words like `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `C
 Open `.env` in a specific viewer:
 
 ```bash
-thread-cf env open --viewer code
+urthreads env open --viewer code
 ```
 
 ## Wrangler Configuration
@@ -189,23 +198,58 @@ thread-cf env open --viewer code
 - environment-specific Worker names
 - runtime vars for local, staging, and production
 
+Create it interactively:
+
+```bash
+urthreads wrangler-init
+```
+
+Manage it without opening the file:
+
+```bash
+urthreads wrangler set name urthreads-worker
+urthreads wrangler set account_id your-account-id
+urthreads wrangler set database_id your-d1-id
+urthreads wrangler set ALLOWED_ORIGINS https://example.com
+urthreads wrangler set database_id prod-d1-id --env production
+urthreads wrangler get ALLOWED_ORIGINS
+urthreads wrangler list
+urthreads wrangler open
+```
+
+Supported `set`/`get` keys:
+
+- `name`
+- `main`
+- `compatibility_date`
+- `account_id`
+- `workers_dev`
+- `database_name`
+- `database_id`
+- `ALLOWED_ORIGINS`
+- `WORKER_NAME`
+- `D1_DATABASE_NAME`
+- `ADMIN_API_KEY_EXPIRES_AT`
+- `ADMIN_SESSION_TTL_SECONDS`
+- `MAX_COMMENTS_PER_POST`
+
 Minimum shape:
 
 ```toml
-name = "likes-and-comments-worker"
+name = "urthreads-worker"
 main = "src/worker.js"
 compatibility_date = "2026-05-20"
 workers_dev = true
 
 [[d1_databases]]
 binding = "DB"
-database_name = "likes-and-comments"
+database_name = "your-threads"
 database_id = "your-d1-id"
 
 [vars]
 ALLOWED_ORIGINS = "https://example.com"
-WORKER_NAME = "likes-and-comments-worker"
-D1_DATABASE_NAME = "likes-and-comments"
+WORKER_NAME = "urthreads-worker"
+D1_DATABASE_NAME = "your-threads"
 ADMIN_SESSION_TTL_SECONDS = "3600"
 ```
 
@@ -221,20 +265,20 @@ wrangler deploy --env production
 Create a database:
 
 ```bash
-wrangler d1 create likes-and-comments
+wrangler d1 create your-threads
 ```
 
 Initialize the schema:
 
 ```bash
-wrangler d1 execute likes-and-comments --remote --file=src/schema.sql
+wrangler d1 execute your-threads --remote --file=src/schema.sql
 ```
 
 For production:
 
 ```bash
-wrangler d1 create likes-and-comments-prod
-wrangler d1 execute likes-and-comments-prod --remote --file=src/schema.sql --env production
+wrangler d1 create your-threads-prod
+wrangler d1 execute your-threads-prod --remote --file=src/schema.sql --env production
 ```
 
 ## Deployment Checklist
@@ -255,7 +299,7 @@ wrangler d1 execute likes-and-comments-prod --remote --file=src/schema.sql --env
 Add the exact browser origin:
 
 ```bash
-thread-cf env add-origin http://localhost:8000
+urthreads env add-origin http://localhost:8000
 ```
 
 Then update Worker runtime vars and redeploy:

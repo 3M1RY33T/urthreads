@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Public CLI entrypoint for the thread-cf package.
+ * Public CLI entrypoint for the urthreads package.
  */
 
 const moderationCli = require("./cli");
@@ -9,6 +9,7 @@ const adminKeyCli = require("./admin-key");
 const adminSessionCli = require("./admin-session");
 const envConfigCli = require("./env-config");
 const setupEnvCli = require("./setup-env");
+const wranglerConfigCli = require("./wrangler-config");
 
 const MODERATION_COMMANDS = new Set([
   "pending",
@@ -59,16 +60,24 @@ const ENV_COMMANDS = new Set([
   "allowed-origins",
 ]);
 
+const WRANGLER_COMMANDS = new Set([
+  "wrangler",
+  "wrangler-init",
+  "wrangler-toml",
+]);
+
 function showHelp() {
   process.stdout.write(`
-thread-cf - Cloudflare Likes & Comments
+urthreads - Cloudflare Likes & Comments
 
 USAGE:
-  thread-cf <command> [params]
+  urthreads <command> [params]
 
 SETUP COMMANDS:
   setup-env            Create a local .env file with guided prompts
   init                 Alias for setup-env
+  wrangler-init        Create wrangler.toml with guided prompts
+  wrangler             Manage wrangler.toml values
   env                  Manage local .env values
   env add-origin       Add exact allowed origins to .env
   env open             Open .env in the system text viewer
@@ -104,17 +113,19 @@ HELP:
   comments help        Show comment management help
 
 EXAMPLES:
-  thread-cf setup-env
-  thread-cf env add-origin http://localhost:8000
-  thread-cf env open
-  thread-cf admin-key
-  thread-cf admin-key --expires 30d
-  thread-cf admin-session --ttl 1h
-  thread-cf pending
-  thread-cf approve 5
-  thread-cf list-approved /blog/my-post
-  thread-cf list-likes
-  thread-cf set-like /blog/my-post 10 --execute
+  urthreads setup-env
+  urthreads wrangler-init
+  urthreads wrangler set database_id your-d1-id
+  urthreads env add-origin http://localhost:8000
+  urthreads env open
+  urthreads admin-key
+  urthreads admin-key --expires 30d
+  urthreads admin-session --ttl 1h
+  urthreads pending
+  urthreads approve 5
+  urthreads list-approved /blog/my-post
+  urthreads list-likes
+  urthreads set-like /blog/my-post 10 --execute
 
 `);
 }
@@ -128,17 +139,17 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (SETUP_COMMANDS.has(command)) {
-    await setupEnvCli.main(argv.slice(1), { commandName: `thread-cf ${command}` });
+    await setupEnvCli.main(argv.slice(1), { commandName: `urthreads ${command}` });
     return;
   }
 
   if (ADMIN_KEY_COMMANDS.has(command)) {
-    await adminKeyCli.main(argv.slice(1), { commandName: `thread-cf ${command}` });
+    await adminKeyCli.main(argv.slice(1), { commandName: `urthreads ${command}` });
     return;
   }
 
   if (ADMIN_SESSION_COMMANDS.has(command)) {
-    await adminSessionCli.main(argv.slice(1), { commandName: `thread-cf ${command}` });
+    await adminSessionCli.main(argv.slice(1), { commandName: `urthreads ${command}` });
     return;
   }
 
@@ -149,22 +160,28 @@ async function main(argv = process.argv.slice(2)) {
         ? ["add-origin", ...envArgs.slice(1)]
         : ["add-origin", ...envArgs];
     }
-    await envConfigCli.main(envArgs, { commandName: command === "env" ? "thread-cf env" : `thread-cf ${command}` });
+    await envConfigCli.main(envArgs, { commandName: command === "env" ? "urthreads env" : `urthreads ${command}` });
+    return;
+  }
+
+  if (WRANGLER_COMMANDS.has(command)) {
+    const wranglerArgs = command === "wrangler-init" ? ["init", ...argv.slice(1)] : argv.slice(1);
+    await wranglerConfigCli.main(wranglerArgs, { commandName: command === "wrangler" ? "urthreads wrangler" : `urthreads ${command}` });
     return;
   }
 
   if (command === "comments") {
-    await moderationCli.main(argv.slice(1), { commandName: "thread-cf comments" });
+    await moderationCli.main(argv.slice(1), { commandName: "urthreads comments" });
     return;
   }
 
   if (MODERATION_COMMANDS.has(command)) {
-    await moderationCli.main(argv, { commandName: "thread-cf" });
+    await moderationCli.main(argv, { commandName: "urthreads" });
     return;
   }
 
   console.error(`Unknown command: ${command}`);
-  console.error("Run 'thread-cf help' for usage.");
+  console.error("Run 'urthreads help' for usage.");
   process.exit(1);
 }
 
@@ -181,6 +198,7 @@ module.exports = {
   ENV_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
+  WRANGLER_COMMANDS,
   main,
   showHelp,
 };

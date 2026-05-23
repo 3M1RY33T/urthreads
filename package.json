@@ -1,7 +1,7 @@
 {
-  "name": "thread-cf",
+  "name": "urthreads",
   "version": "1.0.0",
-  "description": "A Cloudflare Workers demo for likes and comments with D1 support.",
+  "description": "A Cloudflare Workers and D1 engagement system for static-site likes and comments.",
   "license": "MIT",
   "keywords": [
     "cloudflare",
@@ -12,7 +12,7 @@
     "static-site"
   ],
   "bin": {
-    "thread-cf": "./src/thread-cf.js"
+    "urthreads": "./src/thread-cf.js"
   },
   "files": [
     ".env.example",

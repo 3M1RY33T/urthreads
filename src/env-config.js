@@ -161,7 +161,7 @@ function getOpenCommand(envPath, viewer = "", platform = process.platform) {
 
 function openEnvFile(envPath, options = {}) {
   if (!fs.existsSync(envPath)) {
-    throw new Error(`${path.basename(envPath)} does not exist yet. Run thread-cf setup-env first.`);
+    throw new Error(`${path.basename(envPath)} does not exist yet. Run urthreads setup-env first.`);
   }
 
   const opener = options.opener || spawnSync;
@@ -195,11 +195,11 @@ DESCRIPTION:
   add-origin removes wildcard CORS values and appends exact origins safely.
 
 EXAMPLES:
-  thread-cf env add-origin http://[::1]:8000
-  thread-cf env add-origin https://mysite.com https://www.mysite.com --target prod
-  thread-cf env set WORKER_URL https://my-worker.example.workers.dev
-  thread-cf env get ALLOWED_ORIGINS
-  thread-cf env open
+  urthreads env add-origin http://[::1]:8000
+  urthreads env add-origin https://mysite.com https://www.mysite.com --target prod
+  urthreads env set WORKER_URL https://my-worker.example.workers.dev
+  urthreads env get ALLOWED_ORIGINS
+  urthreads env open
 
 `);
 }

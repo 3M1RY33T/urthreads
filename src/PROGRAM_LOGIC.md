@@ -1,6 +1,9 @@
+| [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | *> Program Logic <* | [Tests](../test/TESTS.md) |
+| --- | --- | --- | --- | --- |
+
 # Program Logic
 
-This directory contains the Worker runtime, local setup helpers, database schema, and CLI entrypoint for `thread-cf`.
+This directory contains the Worker runtime, local setup helpers, database schema, and CLI entrypoint for `urthreads`.
 
 ## Runtime Shape
 
@@ -126,7 +129,7 @@ The admin stats endpoint combines these events with moderation actions from `adm
 Run the schema once per D1 database:
 
 ```bash
-wrangler d1 execute likes-and-comments --remote --file=src/schema.sql
+wrangler d1 execute your-threads --remote --file=src/schema.sql
 ```
 
 Tables:
@@ -144,6 +147,7 @@ The Worker also contains compatibility helpers for older databases, such as ensu
 - `thread-cf.js`: public CLI entrypoint and command router.
 - `setup-env.js`: guided `.env` creation.
 - `env-config.js`: local `.env` inspection and updates, including allowed origins.
+- `wrangler-config.js`: guided `wrangler.toml` creation and updates.
 - `admin-key.js`: admin key generation and rotation.
 - `admin-session.js`: session TTL configuration.
 - `cli.js`: moderation, like, stats, and health commands that generate or execute Wrangler D1 SQL.
@@ -151,15 +155,17 @@ The Worker also contains compatibility helpers for older databases, such as ensu
 Useful commands:
 
 ```bash
-thread-cf setup-env
-thread-cf env add-origin http://localhost:8000
-thread-cf env open
-thread-cf admin-key
-thread-cf admin-session --ttl 1h
-thread-cf pending
-thread-cf approve 5 --execute
-thread-cf stats
-thread-cf health
+urthreads setup-env
+urthreads wrangler-init
+urthreads wrangler set database_id your-d1-id
+urthreads env add-origin http://localhost:8000
+urthreads env open
+urthreads admin-key
+urthreads admin-session --ttl 1h
+urthreads pending
+urthreads approve 5 --execute
+urthreads stats
+urthreads health
 ```
 
 Most D1 management commands print the Wrangler command by default. Add `--execute` or `--run` when you want the CLI to run it immediately.

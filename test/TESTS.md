@@ -1,3 +1,6 @@
+| [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | *> Tests <* |
+| --- | --- | --- | --- | --- |
+
 # Tests
 
 This directory contains Node's built-in test runner coverage for the CLI and setup helpers.
@@ -22,6 +25,7 @@ node --test
 - `env-config.test.js`: allowed origin merging, wildcard removal, sensitive output hiding, and `.env` opening behavior.
 - `setup-env.test.js`: Worker URL normalization, endpoint generation, origin list cleanup, and `.env` generation.
 - `thread-cf.test.js`: top-level command routing and help output.
+- `wrangler-config.test.js`: `wrangler.toml` generation, value updates, listing, and CLI routing.
 
 ## What The Tests Emphasize
 
@@ -30,6 +34,7 @@ The tests focus on code that can be verified locally without a Cloudflare accoun
 - SQL generation is escaped and structured correctly.
 - CLI commands route to the expected modules.
 - `.env` updates preserve unrelated values.
+- `wrangler.toml` updates target the correct local, staging, or production section.
 - Sensitive values are not printed when they should remain hidden.
 - Allowed origins are exact and wildcard values are removed when real origins are added.
 - Setup output derives endpoint URLs from the Worker URL.

@@ -136,10 +136,10 @@ DESCRIPTION:
   Values are limited to 15 minutes through 1 hour.
 
 EXAMPLES:
-  thread-cf admin-session
-  thread-cf admin-session --ttl 1h
-  thread-cf admin-session --ttl 30m
-  thread-cf admin-session --ttl 3600
+  urthreads admin-session
+  urthreads admin-session --ttl 1h
+  urthreads admin-session --ttl 30m
+  urthreads admin-session --ttl 3600
 
 `);
 }
