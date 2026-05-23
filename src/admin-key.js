@@ -8,6 +8,7 @@
  */
 
 const crypto = require("crypto");
+const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
@@ -149,6 +150,35 @@ function writeEnvFile(envPath, updates) {
   }
 }
 
+function copyToClipboard(value) {
+  const text = String(value || "");
+  if (!text) return { copied: false, command: "" };
+
+  const candidates = process.platform === "darwin"
+    ? [{ command: "pbcopy", args: [] }]
+    : process.platform === "win32"
+      ? [{ command: "clip", args: [] }]
+      : [
+          { command: "wl-copy", args: [] },
+          { command: "xclip", args: ["-selection", "clipboard"] },
+          { command: "xsel", args: ["--clipboard", "--input"] },
+        ];
+
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate.command, candidate.args, {
+      input: text,
+      encoding: "utf8",
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+
+    if (result.status === 0) {
+      return { copied: true, command: candidate.command };
+    }
+  }
+
+  return { copied: false, command: "" };
+}
+
 function createPrompter(input = process.stdin, output = process.stdout) {
   const rl = readline.createInterface({ input, output });
 
@@ -230,7 +260,8 @@ USAGE:
 DESCRIPTION:
   Generates a secure admin API key, writes it to ADMIN_API_KEY in .env, and
   writes ADMIN_API_KEY_EXPIRES_AT with an ISO timestamp or an empty value for
-  keys that never expire.
+  keys that never expire. The generated key is copied to your clipboard when
+  clipboard tooling is available; it is not printed to terminal output.
 
 EXAMPLES:
   thread-cf admin-key
@@ -256,8 +287,9 @@ async function main(argv = process.argv.slice(2), options = {}) {
     const expiration = args.expires
       ? parseExpirationValue(args.expires)
       : await selectExpiration(prompter, output);
-    const adminKey = generateAdminApiKey();
+    const adminKey = (options.generateAdminApiKey || generateAdminApiKey)();
     const envPath = path.resolve(process.cwd(), args.envPath);
+    const copyResult = (options.copyToClipboard || copyToClipboard)(adminKey);
 
     writeEnvFile(envPath, {
       [ADMIN_KEY_NAME]: adminKey,
@@ -265,8 +297,13 @@ async function main(argv = process.argv.slice(2), options = {}) {
     });
 
     output.write(`\nUpdated ${path.relative(process.cwd(), envPath) || ".env"}\n`);
-    output.write(`${ADMIN_KEY_NAME}=${adminKey}\n`);
     output.write(`${ADMIN_KEY_EXPIRES_AT_NAME}=${expiration.label}\n\n`);
+    if (copyResult.copied) {
+      output.write(`Copied ${ADMIN_KEY_NAME} to your clipboard.\n\n`);
+    } else {
+      output.write(`Generated ${ADMIN_KEY_NAME} and wrote it to .env.\n`);
+      output.write("Clipboard copy was unavailable in this shell, so the key was not printed.\n\n");
+    }
     output.write("Next steps:\n");
     output.write("  1. Store ADMIN_API_KEY as a Worker secret: wrangler secret put ADMIN_API_KEY\n");
     output.write("  2. Deploy/update ADMIN_API_KEY_EXPIRES_AT with your Worker environment if it expires.\n\n");
@@ -287,6 +324,7 @@ if (require.main === module) {
 module.exports = {
   ADMIN_KEY_EXPIRES_AT_NAME,
   ADMIN_KEY_NAME,
+  copyToClipboard,
   generateAdminApiKey,
   main,
   parseArgs,

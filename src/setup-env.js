@@ -79,7 +79,7 @@ function buildEnvContent(config) {
     envLine("WORKER_URL", workerUrl),
     "",
     "# CORS",
-    "# Use specific origins in production. Avoid \"*\" unless you are testing.",
+    "# Use exact browser origins. Dashboard cookie sessions do not work with \"*\".",
     envLine("ALLOWED_ORIGINS", allowedOrigins),
     envLine("ALLOWED_ORIGINS_STAGING", allowedOriginsStaging),
     envLine("ALLOWED_ORIGINS_PROD", allowedOriginsProd),
@@ -93,6 +93,7 @@ function buildEnvContent(config) {
     "# Store ADMIN_API_KEY as a Worker secret before using the dashboard.",
     envLine("ADMIN_API_KEY", config.adminApiKey || ""),
     envLine("ADMIN_API_KEY_EXPIRES_AT", config.adminApiKeyExpiresAt || ""),
+    envLine("ADMIN_SESSION_TTL_SECONDS", config.adminSessionTtlSeconds || "3600"),
     "",
     "# Optional runtime settings",
     envLine("MAX_COMMENTS_PER_POST", config.maxCommentsPerPost || DEFAULTS.maxCommentsPerPost),
@@ -194,7 +195,9 @@ async function collectConfig(prompter, output = process.stdout) {
   const workerUrl = await prompter.ask("Worker URL", defaultWorkerUrl);
 
   output.write("\nCORS origins\n");
-  output.write("Use comma-separated origins. Example: https://example.com,https://www.example.com\n");
+  output.write("Use comma-separated exact browser origins. Include your website and dashboard origins.\n");
+  output.write("Avoid \"*\" because secure dashboard cookie sessions require a specific origin.\n");
+  output.write("Example: https://example.com,https://www.example.com,http://localhost:8000\n");
   const allowedOrigins = await prompter.ask(
     "Allowed origins",
     DEFAULTS.allowedOrigins

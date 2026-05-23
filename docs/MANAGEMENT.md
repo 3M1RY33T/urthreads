@@ -12,26 +12,29 @@ This guide shows how to manage comments using the `thread-cf` CLI, Wrangler CLI,
 
 ## Admin Dashboard
 
-The built-in static dashboard in `dashboard/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/hidden/rejected comments, ranked liked/commented paths, and Worker configuration metadata.
+The built-in static dashboard in `web/index.html` connects to protected admin endpoints on your Worker. It shows summary metrics, pending/approved/hidden/rejected comments, ranked liked/commented paths, and Worker configuration metadata.
 
 Create an admin secret before using it:
 
 ```bash
 thread-cf admin-key
 wrangler secret put ADMIN_API_KEY
+thread-cf admin-session --ttl 1h
 ```
 
-`thread-cf admin-key` generates a secure key, updates `ADMIN_API_KEY` in `.env`, and lets you choose an expiration. Expiring keys are written to `ADMIN_API_KEY_EXPIRES_AT` as an ISO timestamp; empty means never expires.
+`thread-cf admin-key` generates a secure key, updates `ADMIN_API_KEY` in `.env`, copies the raw key to your clipboard when possible, and lets you choose an expiration. Expiring keys are written to `ADMIN_API_KEY_EXPIRES_AT` as an ISO timestamp; empty means never expires. The raw key is not printed to terminal output.
+`thread-cf admin-session --ttl 1h` writes `ADMIN_SESSION_TTL_SECONDS=3600` to `.env`.
 
-Then open the dashboard. It prompts once per browser session for:
+Then open the dashboard. It prompts for:
 
 - Worker URL: `https://your-worker.workers.dev`
 - Admin key: the value you set for `ADMIN_API_KEY`
 
-If the admin key expires or the session is cleared, the dashboard prompts again.
+The key is submitted once to `POST /admin/session`, then the dashboard uses a short-lived admin session stored in an `HttpOnly`, `Secure` cookie. The dashboard does not store a JavaScript-readable session token. `ADMIN_SESSION_TTL_SECONDS` controls the session lifetime and defaults to one hour. If the admin key or session expires, the dashboard prompts again.
 
 The dashboard uses these protected endpoints:
 
+- `POST /admin/session`
 - `GET /admin/summary`
 - `GET /admin/stats?range=30d`
 - `GET /admin/comments?status=pending&limit=50`
@@ -43,10 +46,11 @@ The dashboard uses these protected endpoints:
 - `GET /admin/likes?sort=relevance&direction=desc&path=/blog&limit=25`
 - `GET /admin/worker`
 - `GET /admin/audit-logs?limit=25`
+- `DELETE /admin/session`
 
 Do not embed Cloudflare account API tokens in the dashboard. If you later want account-wide Worker listings, add a protected server-side proxy endpoint.
 
-Admin dashboard activity is written to the `admin_audit_logs` D1 table. Logs store action, method, route, response status, client IP, user agent, timestamp, sanitized details, and a short SHA-256 fingerprint of the presented admin key. Raw admin keys and request bodies are not stored.
+Admin dashboard activity is written to the `admin_audit_logs` D1 table. Logs store action, method, route, response status, client IP, user agent, timestamp, sanitized details, and a short SHA-256 fingerprint of the presented credential or session. Raw admin keys and request bodies are not stored.
 
 Comment settings include a denied keyword list. Matching is case-insensitive against comment text and author name. Matches are stored as rejected comments and receive a neutral pending response from the public API.
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>thread-cf</title>
-  <link rel="stylesheet" href="styles.css?v=110" />
+  <link rel="stylesheet" href="styles.css?v=113" />
 </head>
 <body>
   <div class="app-shell">
@@ -14,14 +14,26 @@
           <h1>Threads Dashboard</h1>
           <p>Admin Threads-CF dashboard</p>
         </div>
-        <button type="button" class="session-card" data-session-action data-session-card data-connection="disconnected" aria-label="Open session settings">
-          <span class="session-card-label">
-            <span class="connection-indicator" aria-hidden="true"></span>
-            Session
-          </span>
-          <strong data-session-worker>Not connected</strong>
-          <div class="status-line" data-status></div>
-        </button>
+        <div class="session-menu" data-session-menu>
+          <button type="button" class="session-card" data-session-action data-session-card data-connection="disconnected" aria-label="Open session menu" aria-expanded="false" aria-controls="session-popover">
+            <span class="session-card-label">
+              <span class="connection-indicator" aria-hidden="true"></span>
+              Session
+            </span>
+            <strong data-session-worker>Not connected</strong>
+            <div class="status-line" data-status></div>
+          </button>
+          <div id="session-popover" class="session-popover" data-session-popover hidden>
+            <button class="session-popover-logout" type="button" data-session-logout>
+              <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"></path>
+                <path d="M16 17l5-5-5-5"></path>
+                <path d="M21 12H9"></path>
+              </svg>
+              <span>Log out</span>
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -220,8 +232,9 @@
                 </select>
                 <input data-comment-path type="text" placeholder="/path" />
                 <select data-comment-limit>
+                  <option value="10" selected>10</option>
                   <option value="25">25</option>
-                  <option value="50" selected>50</option>
+                  <option value="50">50</option>
                   <option value="100">100</option>
                 </select>
               </div>
@@ -269,7 +282,8 @@
                   </select>
                   <input data-likes-path type="text" placeholder="/path" />
                   <select data-likes-limit>
-                    <option value="25" selected>25</option>
+                    <option value="10" selected>10</option>
+                    <option value="25">25</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
                   </select>
@@ -462,6 +476,6 @@
       </div>
     </form>
   </div>
-  <script src="dashboard.js?v=60"></script>
+  <script src="dashboard.js?v=67"></script>
 </body>
 </html>

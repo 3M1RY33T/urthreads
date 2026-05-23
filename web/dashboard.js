@@ -1,13 +1,12 @@
 (function() {
   const storageKeys = {
     workerUrl: 'thread-cf:admin:workerUrl',
-    adminKey: 'thread-cf:admin:adminKey',
     theme: 'thread-cf:admin:theme',
   };
 
   const state = {
     workerUrl: window.sessionStorage.getItem(storageKeys.workerUrl) || '',
-    adminKey: window.sessionStorage.getItem(storageKeys.adminKey) || '',
+    isAuthenticated: false,
     theme: window.localStorage.getItem(storageKeys.theme) || 'light',
     statsRange: '30d',
     statsStartDate: '',
@@ -36,6 +35,9 @@
     confirmSubmit: document.querySelector('[data-confirm-submit]'),
     workerUrl: document.querySelector('[name="workerUrl"]'),
     adminKey: document.querySelector('[name="adminKey"]'),
+    sessionMenu: document.querySelector('[data-session-menu]'),
+    sessionPopover: document.querySelector('[data-session-popover]'),
+    sessionLogout: document.querySelector('[data-session-logout]'),
     sessionCard: document.querySelector('[data-session-card]'),
     sessionWorker: document.querySelector('[data-session-worker]'),
     sessionActions: document.querySelectorAll('[data-session-action]'),
@@ -108,7 +110,7 @@
   }
 
   function setSessionWorker(connectionState) {
-    const hasSession = Boolean(state.workerUrl && state.adminKey);
+    const hasSession = Boolean(state.workerUrl && state.isAuthenticated);
     const nextState = connectionState || (hasSession ? 'connected' : 'disconnected');
     const labels = {
       connected: 'Connected',
@@ -129,20 +131,69 @@
     return `${state.workerUrl}${path}`;
   }
 
-  function clearAdminSession() {
-    state.workerUrl = '';
-    state.adminKey = '';
-    window.sessionStorage.removeItem(storageKeys.workerUrl);
-    window.sessionStorage.removeItem(storageKeys.adminKey);
+  function canAttemptCookieSession(workerUrl = state.workerUrl) {
+    if (!workerUrl || !window.location.origin || window.location.origin === 'null') {
+      return false;
+    }
+
+    try {
+      const url = new URL(workerUrl);
+      return url.protocol === 'https:' || url.protocol === 'http:';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async function verifyCookieSession(workerUrl = state.workerUrl) {
+    if (!canAttemptCookieSession(workerUrl)) return false;
+
+    const response = await fetch(`${workerUrl}/admin/session`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+      },
+    }).catch(() => null);
+    if (!response || !response.ok) return false;
+
+    const payload = await response.json().catch(() => ({}));
+    return Boolean(payload.authenticated);
+  }
+
+  function clearAdminSession(options = {}) {
+    const shouldClearWorkerUrl = options.clearWorkerUrl !== false;
+    state.isAuthenticated = false;
+
+    if (shouldClearWorkerUrl) {
+      state.workerUrl = '';
+      window.sessionStorage.removeItem(storageKeys.workerUrl);
+    }
     setSessionWorker();
   }
 
-  function endSession() {
+  async function endSession() {
+    setSessionPopoverOpen(false);
+    if (state.workerUrl) {
+      await fetch(endpoint('/admin/session'), {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      }).catch(() => {});
+    }
     clearAdminSession();
     window.location.reload();
   }
 
+  function setSessionPopoverOpen(open) {
+    const shouldOpen = Boolean(open && state.isAuthenticated);
+    elements.sessionPopover.hidden = !shouldOpen;
+    elements.sessionCard.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  }
+
   function showAuthPrompt(message) {
+    setSessionPopoverOpen(false);
     elements.workerUrl.value = state.workerUrl;
     elements.adminKey.value = '';
     elements.authOverlay.hidden = false;
@@ -165,7 +216,7 @@
   }
 
   function closeAuthPrompt() {
-    if (!state.workerUrl || !state.adminKey) {
+    if (!state.workerUrl || !state.isAuthenticated) {
       setAuthStatus('Worker URL and admin key are required.', true);
       return;
     }
@@ -202,7 +253,7 @@
   }
 
   function handleExpiredSession() {
-    clearAdminSession();
+    clearAdminSession({ clearWorkerUrl: false });
     showAuthPrompt('Session expired. Enter the admin key again.');
     setStatus('Session expired.', true);
   }
@@ -444,16 +495,16 @@
   }
 
   async function requestAdmin(path, options) {
-    if (!state.workerUrl || !state.adminKey) {
+    if (!state.workerUrl) {
       showAuthPrompt();
-      throw new Error('Worker URL and admin key are required.');
+      throw new Error('Worker URL is required.');
     }
 
     const response = await fetch(endpoint(path), {
       ...options,
+      credentials: 'include',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${state.adminKey}`,
         ...(options && options.body ? { 'Content-Type': 'application/json' } : {}),
         ...(options && options.headers ? options.headers : {}),
       },
@@ -465,6 +516,26 @@
         handleExpiredSession();
       }
       throw new Error(payload.error || `Request failed with ${response.status}.`);
+    }
+    state.isAuthenticated = true;
+    return payload;
+  }
+
+  async function createAdminSession(workerUrl, adminKey, credentialsMode = 'include') {
+    const response = await fetch(`${workerUrl}/admin/session`, {
+      method: 'POST',
+      credentials: credentialsMode,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        adminKey,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Session request failed with ${response.status}.`);
     }
     return payload;
   }
@@ -1405,7 +1476,7 @@
       await loadComments();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Request failed.';
-      setStatus(state.adminKey ? message : 'Session expired.', true);
+      setStatus(state.isAuthenticated ? message : 'Session expired.', true);
     }
   }
 
@@ -1414,7 +1485,7 @@
       await loadLikes();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Request failed.';
-      setStatus(state.adminKey ? message : 'Session expired.', true);
+      setStatus(state.isAuthenticated ? message : 'Session expired.', true);
     }
   }
 
@@ -1532,7 +1603,7 @@
   }
 
   async function refreshAll() {
-    if (!state.workerUrl || !state.adminKey) {
+    if (!state.workerUrl) {
       setSessionWorker('disconnected');
       showAuthPrompt();
       return;
@@ -1563,8 +1634,36 @@
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Request failed.';
       setSessionWorker('error');
-      setStatus(state.adminKey ? message : 'Session expired.', true);
+      setStatus(state.isAuthenticated ? message : 'Session expired.', true);
+      if (!state.isAuthenticated) {
+        showAuthPrompt('Session expired. Enter the admin key again.');
+      }
     }
+  }
+
+  async function restoreSessionAfterRefresh() {
+    setEmpty(elements.commentList, 'No comments loaded.');
+    setEmpty(elements.likesList, 'No likes loaded.');
+    setEmpty(elements.workerList, 'No worker loaded.');
+    setEmpty(elements.auditList, 'No activity logs loaded.');
+    renderStatsChart({ rangeDays: 30, points: [] });
+
+    if (!state.workerUrl) {
+      showAuthPrompt();
+      return;
+    }
+
+    setSessionWorker('loading');
+    setStatus('Restoring session...');
+    if (await verifyCookieSession()) {
+      state.isAuthenticated = true;
+      await refreshAll();
+      return;
+    }
+
+    clearAdminSession({ clearWorkerUrl: false });
+    setStatus('Session expired.', true);
+    showAuthPrompt('Session expired. Enter the admin key again.');
   }
 
   elements.authForm.addEventListener('submit', async (event) => {
@@ -1577,18 +1676,38 @@
       return;
     }
 
-    state.workerUrl = workerUrl;
-    state.adminKey = adminKey;
-    window.sessionStorage.setItem(storageKeys.workerUrl, state.workerUrl);
-    window.sessionStorage.setItem(storageKeys.adminKey, state.adminKey);
     setSessionWorker('loading');
-    hideAuthPrompt();
-    await refreshAll();
+    setAuthStatus('Creating secure session...');
+    try {
+      state.workerUrl = workerUrl;
+      state.isAuthenticated = false;
+      const sessionPayload = await createAdminSession(workerUrl, adminKey, 'include');
+
+      if (!sessionPayload?.authenticated || !(await verifyCookieSession(workerUrl))) {
+        throw new Error(`Session cookie was not accepted. Add ${window.location.origin} to ALLOWED_ORIGINS and redeploy the Worker.`);
+      }
+
+      state.isAuthenticated = true;
+      window.sessionStorage.setItem(storageKeys.workerUrl, state.workerUrl);
+      elements.adminKey.value = '';
+      hideAuthPrompt();
+      await refreshAll();
+    } catch (error) {
+      clearAdminSession({ clearWorkerUrl: false });
+      const message = error instanceof Error ? error.message : 'Unable to create session.';
+      setSessionWorker('error');
+      showAuthPrompt(message);
+    }
   });
 
   elements.sessionActions.forEach((button) => button.addEventListener('click', () => {
-    showAuthPrompt();
+    if (state.isAuthenticated) {
+      setSessionPopoverOpen(elements.sessionPopover.hidden);
+    } else {
+      showAuthPrompt();
+    }
   }));
+  elements.sessionLogout.addEventListener('click', endSession);
   elements.themeToggle.addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
   });
@@ -1607,6 +1726,9 @@
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !elements.confirmOverlay.hidden) {
       closeConfirmPrompt(false);
+    } else if (event.key === 'Escape' && !elements.sessionPopover.hidden) {
+      setSessionPopoverOpen(false);
+      elements.sessionCard.focus();
     } else if (event.key === 'Escape' && !elements.authOverlay.hidden) {
       closeAuthPrompt();
     } else if (event.key === 'Escape' && !elements.statsDatePopover.hidden) {
@@ -1625,6 +1747,9 @@
     }
   });
   document.addEventListener('click', (event) => {
+    if (!elements.sessionPopover.hidden && !elements.sessionMenu.contains(event.target)) {
+      setSessionPopoverOpen(false);
+    }
     if (!elements.statsDatePopover.hidden && !event.target.closest('[data-stats-date-picker]')) {
       setStatsDatePopoverOpen(false);
     }
@@ -1739,14 +1864,5 @@
   setSessionWorker();
   renderDeniedKeywordsPopover();
 
-  if (state.workerUrl && state.adminKey) {
-    refreshAll();
-  } else {
-    setEmpty(elements.commentList, 'No comments loaded.');
-    setEmpty(elements.likesList, 'No likes loaded.');
-    setEmpty(elements.workerList, 'No worker loaded.');
-    setEmpty(elements.auditList, 'No activity logs loaded.');
-    renderStatsChart({ rangeDays: 30, points: [] });
-    showAuthPrompt();
-  }
+  restoreSessionAfterRefresh();
 })();

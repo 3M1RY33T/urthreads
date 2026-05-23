@@ -6,6 +6,7 @@
 
 const moderationCli = require("./cli");
 const adminKeyCli = require("./admin-key");
+const adminSessionCli = require("./admin-session");
 const setupEnvCli = require("./setup-env");
 
 const MODERATION_COMMANDS = new Set([
@@ -44,6 +45,12 @@ const ADMIN_KEY_COMMANDS = new Set([
   "rotate-admin-key",
 ]);
 
+const ADMIN_SESSION_COMMANDS = new Set([
+  "admin-session",
+  "session-ttl",
+  "admin-session-ttl",
+]);
+
 function showHelp() {
   process.stdout.write(`
 thread-cf - Cloudflare Likes & Comments
@@ -55,6 +62,7 @@ SETUP COMMANDS:
   setup-env            Create a local .env file with guided prompts
   init                 Alias for setup-env
   admin-key            Generate/rotate ADMIN_API_KEY in .env
+  admin-session        Configure ADMIN_SESSION_TTL_SECONDS in .env
 
 COMMENT MANAGEMENT:
   pending              List all pending comments
@@ -88,6 +96,7 @@ EXAMPLES:
   thread-cf setup-env
   thread-cf admin-key
   thread-cf admin-key --expires 30d
+  thread-cf admin-session --ttl 1h
   thread-cf pending
   thread-cf approve 5
   thread-cf list-approved /blog/my-post
@@ -115,6 +124,11 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (ADMIN_SESSION_COMMANDS.has(command)) {
+    await adminSessionCli.main(argv.slice(1), { commandName: `thread-cf ${command}` });
+    return;
+  }
+
   if (command === "comments") {
     await moderationCli.main(argv.slice(1), { commandName: "thread-cf comments" });
     return;
@@ -139,6 +153,7 @@ if (require.main === module) {
 
 module.exports = {
   ADMIN_KEY_COMMANDS,
+  ADMIN_SESSION_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
   main,

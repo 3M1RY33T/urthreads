@@ -116,6 +116,15 @@ ALLOWED_ORIGINS = "https://mysite.com,https://www.mysite.com"
 ALLOWED_ORIGINS = "*"
 ```
 
+### Admin Sessions
+
+The dashboard should submit `ADMIN_API_KEY` only to `POST /admin/session`. The Worker then issues a short-lived dashboard session through an `HttpOnly`, `Secure` cookie. The dashboard does not store a JavaScript-readable session token. Use a specific `ALLOWED_ORIGINS` value for the dashboard origin so browser cookie sessions can use CORS credentials safely.
+
+```toml
+[env.production.vars]
+ADMIN_SESSION_TTL_SECONDS = "3600"
+```
+
 ### Input Validation
 
 The worker validates all inputs:
@@ -202,7 +211,7 @@ database_name = "likes-and-comments-dev"
 database_id = "dev-id"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:*"
+ALLOWED_ORIGINS = "http://localhost:8000,http://127.0.0.1:8000,http://[::1]:8000"
 
 # Staging
 [env.staging]

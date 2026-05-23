@@ -122,6 +122,7 @@ button:disabled {
 }
 
 .sidebar-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -138,6 +139,10 @@ button:disabled {
   margin: 6px 0 0;
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.session-menu {
+  position: relative;
 }
 
 button.session-card {
@@ -200,6 +205,48 @@ button.session-card {
   font-size: 0.92rem;
   line-height: 1.35;
   word-break: break-word;
+}
+
+.session-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  width: min(180px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.session-popover[hidden] {
+  display: none;
+}
+
+.session-popover-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--danger);
+  text-align: left;
+}
+
+.session-popover-logout:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.session-popover-logout .button-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .field {
@@ -566,10 +613,6 @@ body.modal-open {
 
 .comment-icon-button.delete-action {
   color: var(--muted);
-}
-
-.comment-icon-button.rejected-delete-action {
-  color: var(--danger);
 }
 
 .comment-icon-button.hide-action {
@@ -1876,8 +1919,10 @@ button.post-title-copy-button:hover:not(:disabled) {
   }
 
   .likes-filters select[data-likes-sort] {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 1;
+    width: auto;
+    margin-right: 48px;
   }
 
   .likes-filters .rank-toggle {
@@ -1911,8 +1956,10 @@ button.post-title-copy-button:hover:not(:disabled) {
   }
 
   .comments-filters select[data-comment-status] {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 1;
+    width: auto;
+    margin-right: 48px;
   }
 
   .comment-keyword-filter {

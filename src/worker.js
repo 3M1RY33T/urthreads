@@ -11,6 +11,7 @@
  * - ALLOWED_ORIGINS: Comma-separated list of allowed origins (or "*" for all)
  * - ADMIN_API_KEY: Optional bearer key for protected admin endpoints
  * - ADMIN_API_KEY_EXPIRES_AT: Optional ISO timestamp for admin key expiry
+ * - ADMIN_SESSION_TTL_SECONDS: Optional admin dashboard session TTL (default 3600)
  */
 
 const jsonHeaders = {
@@ -19,6 +20,10 @@ const jsonHeaders = {
 };
 
 const MAX_COMMENTS_PER_POST = 100;
+const ADMIN_SESSION_COOKIE_NAME = "thread_cf_admin_session";
+const DEFAULT_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
+const MIN_ADMIN_SESSION_TTL_SECONDS = 15 * 60;
+const MAX_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
 let commentHiddenColumnReady = false;
 let deniedKeywordsTableReady = false;
 
@@ -33,17 +38,23 @@ function getCorsHeaders(request, env) {
     .map((item) => item.trim())
     .filter(Boolean);
 
-  if (
-    allowedOrigins.includes("*") ||
-    allowedOrigins.includes(origin)
-  ) {
-    return {
-      "Access-Control-Allow-Origin": allowedOrigins.includes("*")
-        ? "*"
-        : origin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+  const hasWildcardOrigin = allowedOrigins.includes("*");
+  const hasExactOrigin = allowedOrigins.includes(origin);
+
+  if (hasWildcardOrigin || hasExactOrigin) {
+    const headers = {
+      "Access-Control-Allow-Origin": hasExactOrigin ? origin : "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, X-Admin-Key",
       "Vary": "Origin",
+    };
+
+    if (hasExactOrigin && origin) {
+      headers["Access-Control-Allow-Credentials"] = "true";
+    }
+
+    return {
+      ...headers,
     };
   }
 
@@ -55,12 +66,13 @@ function getCorsHeaders(request, env) {
 /**
  * Return JSON response with CORS headers
  */
-function jsonResponse(request, env, body, status = 200) {
+function jsonResponse(request, env, body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       ...jsonHeaders,
       ...getCorsHeaders(request, env),
+      ...extraHeaders,
     },
   });
 }
@@ -268,6 +280,181 @@ function isAdminKeyExpired(env, now = Date.now()) {
   return timestamp <= now;
 }
 
+function getAdminSessionTtlSeconds(env) {
+  const configuredTtl = Number.parseInt(String(env.ADMIN_SESSION_TTL_SECONDS || ""), 10);
+  if (!Number.isFinite(configuredTtl)) {
+    return DEFAULT_ADMIN_SESSION_TTL_SECONDS;
+  }
+
+  return Math.min(
+    Math.max(configuredTtl, MIN_ADMIN_SESSION_TTL_SECONDS),
+    MAX_ADMIN_SESSION_TTL_SECONDS
+  );
+}
+
+function base64UrlEncodeBytes(bytes) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function base64UrlEncodeString(value) {
+  return base64UrlEncodeBytes(new TextEncoder().encode(value));
+}
+
+function base64UrlDecodeToBytes(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function base64UrlDecodeToString(value) {
+  return new TextDecoder().decode(base64UrlDecodeToBytes(value));
+}
+
+function timingSafeEqualString(left, right) {
+  const leftBytes = new TextEncoder().encode(String(left || ""));
+  const rightBytes = new TextEncoder().encode(String(right || ""));
+  if (leftBytes.length !== rightBytes.length) return false;
+
+  let mismatch = 0;
+  for (let index = 0; index < leftBytes.length; index += 1) {
+    mismatch |= leftBytes[index] ^ rightBytes[index];
+  }
+  return mismatch === 0;
+}
+
+async function signAdminSessionPayload(payload, env) {
+  const secret = String(env.ADMIN_SESSION_SECRET || env.ADMIN_API_KEY || "").trim();
+  if (!secret || !globalThis.crypto?.subtle) return "";
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(payload)
+  );
+  return base64UrlEncodeBytes(new Uint8Array(signature));
+}
+
+function getAdminSessionCookie(request) {
+  const cookieHeader = request.headers.get("Cookie") || "";
+  const cookies = cookieHeader.split(";").map((cookie) => cookie.trim());
+  const prefix = `${ADMIN_SESSION_COOKIE_NAME}=`;
+  const cookie = cookies.find((item) => item.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
+}
+
+function getAdminSessionCredential(request) {
+  return getAdminSessionCookie(request);
+}
+
+function getAdminSessionCookieSameSite(request, env) {
+  const configured = String(env.ADMIN_SESSION_COOKIE_SAMESITE || "").trim().toLowerCase();
+  if (configured === "none") return "None";
+  if (configured === "strict") return "Strict";
+  if (configured === "lax") return "Lax";
+
+  const origin = request.headers.get("Origin") || "";
+  const requestOrigin = new URL(request.url).origin;
+  return origin && origin !== requestOrigin ? "None" : "Lax";
+}
+
+function buildAdminSessionCookie(request, token, maxAgeSeconds, env) {
+  return [
+    `${ADMIN_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+    "Path=/admin",
+    "HttpOnly",
+    "Secure",
+    `SameSite=${getAdminSessionCookieSameSite(request, env)}`,
+  ].join("; ");
+}
+
+function buildExpiredAdminSessionCookie(request, env) {
+  return buildAdminSessionCookie(request, "", 0, env);
+}
+
+async function createAdminSessionToken(env, now = Date.now()) {
+  const ttlSeconds = getAdminSessionTtlSeconds(env);
+  const issuedAt = Math.floor(now / 1000);
+  const expiresAt = issuedAt + ttlSeconds;
+  const sessionId = globalThis.crypto?.randomUUID
+    ? crypto.randomUUID()
+    : `${issuedAt}-${Math.random().toString(36).slice(2)}`;
+  const payload = {
+    type: "admin_session",
+    iat: issuedAt,
+    exp: expiresAt,
+    jti: sessionId,
+    key: await fingerprintCredential(env.ADMIN_API_KEY || ""),
+  };
+  const encodedPayload = base64UrlEncodeString(JSON.stringify(payload));
+  const signature = await signAdminSessionPayload(encodedPayload, env);
+
+  return {
+    token: `${encodedPayload}.${signature}`,
+    expiresAt: new Date(expiresAt * 1000).toISOString(),
+    ttlSeconds,
+    fingerprint: await fingerprintCredential(`session:${sessionId}`),
+  };
+}
+
+async function verifyAdminSessionToken(token, env, now = Date.now()) {
+  const [encodedPayload, signature, extra] = String(token || "").split(".");
+  const fingerprint = await fingerprintCredential(token);
+  if (!encodedPayload || !signature || extra) {
+    return { allowed: false, fingerprint };
+  }
+
+  const expectedSignature = await signAdminSessionPayload(encodedPayload, env);
+  if (!expectedSignature || !timingSafeEqualString(signature, expectedSignature)) {
+    return { allowed: false, fingerprint };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecodeToString(encodedPayload));
+  } catch (error) {
+    return { allowed: false, fingerprint };
+  }
+
+  const nowSeconds = Math.floor(now / 1000);
+  const expectedKeyFingerprint = await fingerprintCredential(env.ADMIN_API_KEY || "");
+  const sessionFingerprint = await fingerprintCredential(`session:${payload.jti || token}`);
+  if (
+    payload.type !== "admin_session" ||
+    !payload.exp ||
+    payload.exp <= nowSeconds ||
+    payload.key !== expectedKeyFingerprint ||
+    isAdminKeyExpired(env, now)
+  ) {
+    return { allowed: false, fingerprint: sessionFingerprint };
+  }
+
+  return {
+    allowed: true,
+    fingerprint: sessionFingerprint,
+  };
+}
+
 function getAdminCredential(request) {
   const authorization = request.headers.get("Authorization") || "";
   const bearerToken = authorization.startsWith("Bearer ")
@@ -290,17 +477,27 @@ async function fingerprintCredential(value) {
     .join("");
 }
 
-async function getAdminAccess(request, env) {
+async function getAdminKeyAccess(credential, env, now = Date.now()) {
   const expectedKey = String(env.ADMIN_API_KEY || "").trim();
-  const credential = getAdminCredential(request);
-  const fingerprint = await fingerprintCredential(credential);
+  const normalizedCredential = String(credential || "").trim();
+  const fingerprint = await fingerprintCredential(normalizedCredential);
   if (!expectedKey) return { allowed: false, fingerprint };
-  if (isAdminKeyExpired(env)) return { allowed: false, fingerprint };
+  if (isAdminKeyExpired(env, now)) return { allowed: false, fingerprint };
 
   return {
-    allowed: credential === expectedKey,
+    allowed: timingSafeEqualString(normalizedCredential, expectedKey),
     fingerprint,
   };
+}
+
+async function getAdminAccess(request, env) {
+  const sessionToken = getAdminSessionCredential(request);
+  if (sessionToken) {
+    const sessionAccess = await verifyAdminSessionToken(sessionToken, env);
+    if (sessionAccess.allowed) return sessionAccess;
+  }
+
+  return getAdminKeyAccess(getAdminCredential(request), env);
 }
 
 function getClientIp(request) {
@@ -1378,6 +1575,97 @@ async function readJsonBody(request) {
   }
 }
 
+async function handleAdminSession(request, env, url) {
+  if (url.pathname !== "/admin/session") {
+    return jsonResponse(request, env, { error: "Not found." }, 404);
+  }
+
+  if (request.method === "POST") {
+    const payload = await readJsonBody(request);
+    if (!payload) {
+      const response = jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
+      await recordAdminAuditLog(env, request, url, {
+        action: "admin.session.create_failed",
+        status: response.status,
+        details: { reason: "invalid_json" },
+      });
+      return response;
+    }
+
+    const credential = String(payload.adminKey || payload.key || "").trim();
+    const access = await getAdminKeyAccess(credential, env);
+    if (!access.allowed) {
+      const response = jsonResponse(request, env, { error: "Admin access is required." }, 401);
+      await recordAdminAuditLog(env, request, url, {
+        action: "admin.session.create_failed",
+        status: response.status,
+        fingerprint: access.fingerprint,
+      });
+      return response;
+    }
+
+    const session = await createAdminSessionToken(env);
+    const body = {
+      authenticated: true,
+      expiresAt: session.expiresAt,
+      ttlSeconds: session.ttlSeconds,
+    };
+
+    const response = jsonResponse(
+      request,
+      env,
+      body,
+      200,
+      {
+        "Set-Cookie": buildAdminSessionCookie(request, session.token, session.ttlSeconds, env),
+      }
+    );
+    await recordAdminAuditLog(env, request, url, {
+      action: "admin.session.create",
+      status: response.status,
+      fingerprint: session.fingerprint,
+    });
+    return response;
+  }
+
+  if (request.method === "DELETE") {
+    const access = await getAdminAccess(request, env);
+    const response = jsonResponse(
+      request,
+      env,
+      { authenticated: false },
+      200,
+      {
+        "Set-Cookie": buildExpiredAdminSessionCookie(request, env),
+      }
+    );
+    await recordAdminAuditLog(env, request, url, {
+      action: "admin.session.delete",
+      status: response.status,
+      fingerprint: access.fingerprint,
+    });
+    return response;
+  }
+
+  if (request.method === "GET") {
+    const access = await getAdminAccess(request, env);
+    const response = jsonResponse(
+      request,
+      env,
+      { authenticated: access.allowed },
+      access.allowed ? 200 : 401
+    );
+    await recordAdminAuditLog(env, request, url, {
+      action: access.allowed ? "admin.session.read" : "admin.auth_failed",
+      status: response.status,
+      fingerprint: access.fingerprint,
+    });
+    return response;
+  }
+
+  return jsonResponse(request, env, { error: "Method not allowed." }, 405);
+}
+
 async function handleAdmin(request, env, url) {
   const access = await getAdminAccess(request, env);
   if (!access.allowed) {
@@ -1592,6 +1880,10 @@ export default {
       }
 
       const url = new URL(request.url);
+
+      if (url.pathname === "/admin/session") {
+        return handleAdminSession(request, env, url);
+      }
 
       if (url.pathname.startsWith("/admin/")) {
         return handleAdmin(request, env, url);

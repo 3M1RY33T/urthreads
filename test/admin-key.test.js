@@ -5,6 +5,7 @@ const path = require("path");
 const { test } = require("node:test");
 const {
   generateAdminApiKey,
+  main,
   parseArgs,
   parseExpirationValue,
   upsertEnvVars,
@@ -83,4 +84,28 @@ test("parses admin key CLI flags", () => {
 
   assert.strictEqual(args.envPath, ".env.local");
   assert.strictEqual(args.expires, "90d");
+});
+
+test("does not print generated admin key and copies it to clipboard", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "thread-cf-admin-key-output-"));
+  const envPath = path.join(tmpDir, ".env");
+  const generatedKey = "secret-admin-key-value";
+  let clipboardValue = "";
+  let stdout = "";
+
+  await main(["--env", envPath, "--expires", "never"], {
+    output: { write: (chunk) => { stdout += chunk; } },
+    prompter: null,
+    generateAdminApiKey: () => generatedKey,
+    copyToClipboard: (value) => {
+      clipboardValue = value;
+      return { copied: true, command: "test-clipboard" };
+    },
+  });
+
+  const content = fs.readFileSync(envPath, "utf8");
+  assert.ok(content.includes(`ADMIN_API_KEY=${generatedKey}`));
+  assert.strictEqual(clipboardValue, generatedKey);
+  assert.ok(stdout.includes("Copied ADMIN_API_KEY to your clipboard."));
+  assert.ok(!stdout.includes(generatedKey));
 });

@@ -213,7 +213,7 @@ curl -X POST http://localhost:8787/comments \
 ### Environment Variables
 
 #### ALLOWED_ORIGINS
-Comma-separated list of allowed request origins. Use `*` to allow all (not recommended).
+Comma-separated list of exact browser origins allowed to call the Worker. Include the website origin and the dashboard origin. Do not use `*` for dashboard deployments, because secure admin sessions use browser cookies and credentialed CORS requires a specific origin.
 
 ```env
 # Single origin
@@ -224,9 +224,6 @@ ALLOWED_ORIGINS=https://mysite.com,https://www.mysite.com,https://blog.mysite.co
 
 # Development with localhost
 ALLOWED_ORIGINS=https://mysite.com,http://localhost:3000,http://localhost:8000
-
-# Allow all (not recommended)
-ALLOWED_ORIGINS=*
 ```
 
 #### ADMIN_API_KEY
@@ -237,9 +234,18 @@ thread-cf admin-key
 wrangler secret put ADMIN_API_KEY
 ```
 
-The generator writes a secure `ADMIN_API_KEY` to `.env`, replacing the old value or creating it if needed. It also lets you choose an expiration and writes `ADMIN_API_KEY_EXPIRES_AT`; an empty value means the key never expires.
+The generator writes a secure `ADMIN_API_KEY` to `.env`, replacing the old value or creating it if needed. It also lets you choose an expiration and writes `ADMIN_API_KEY_EXPIRES_AT`; an empty value means the key never expires. The raw key is copied to your clipboard when possible and is not printed to terminal output.
 
-The static dashboard sends this value as a bearer token when calling `/admin/*` endpoints. Do not store the key in `wrangler.toml` or commit it to the repository.
+The static dashboard submits this value once to `POST /admin/session`, then uses the short-lived session for `/admin/*` requests. Do not store the key in `wrangler.toml` or commit it to the repository.
+
+#### ADMIN_SESSION_TTL_SECONDS
+Optional dashboard session lifetime in seconds. Defaults to `3600` and is clamped between 15 minutes and one hour.
+
+```bash
+thread-cf admin-session --ttl 1h
+```
+
+That command writes `ADMIN_SESSION_TTL_SECONDS=3600` to `.env`.
 
 #### D1 Database
 

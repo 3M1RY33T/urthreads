@@ -31,15 +31,19 @@ WORKER_NAME = "likes-and-comments-worker"
 D1_DATABASE_NAME = "likes-and-comments"
 # Optional: ISO timestamp. Empty means the admin key never expires.
 ADMIN_API_KEY_EXPIRES_AT = ""
+# Optional: dashboard admin session TTL in seconds. Allowed range is 900-3600.
+ADMIN_SESSION_TTL_SECONDS = "3600"
 
 [env.production.vars]
 ALLOWED_ORIGINS = "https://example.com"
 WORKER_NAME = "likes-and-comments-worker-prod"
 D1_DATABASE_NAME = "likes-and-comments-prod"
 ADMIN_API_KEY_EXPIRES_AT = ""
+ADMIN_SESSION_TTL_SECONDS = "3600"
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://staging.example.com,http://localhost:3000"
 WORKER_NAME = "likes-and-comments-worker-staging"
 D1_DATABASE_NAME = "likes-and-comments-staging"
 ADMIN_API_KEY_EXPIRES_AT = ""
+ADMIN_SESSION_TTL_SECONDS = "3600"

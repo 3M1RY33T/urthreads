@@ -149,16 +149,17 @@ For comment moderation and D1 SQL examples, see `docs/MANAGEMENT.md`.
 
 ### Admin Dashboard
 
-See [dashboard/index.html](./dashboard/index.html) for the built-in static dashboard that connects to protected Worker admin endpoints.
+See [web/index.html](./web/index.html) for the built-in static dashboard that connects to protected Worker admin endpoints.
 
 Set an admin key before using it:
 
 ```bash
 thread-cf admin-key
 wrangler secret put ADMIN_API_KEY
+thread-cf admin-session --ttl 1h
 ```
 
-The generator writes `ADMIN_API_KEY` and `ADMIN_API_KEY_EXPIRES_AT` to your local `.env`, replacing the existing key if present. The dashboard can review pending comments, approve or reject comments, inspect ranked liked/commented paths, and view the current Worker configuration returned by `/admin/worker`.
+The admin key generator writes `ADMIN_API_KEY` and `ADMIN_API_KEY_EXPIRES_AT` to your local `.env`, replaces the existing key if present, and copies the raw key to your clipboard when possible instead of printing it. `thread-cf admin-session --ttl 1h` writes `ADMIN_SESSION_TTL_SECONDS=3600`. The dashboard submits the key once to create a short-lived admin session, then uses that session for protected requests. It can review pending comments, approve or reject comments, inspect ranked liked/commented paths, and view the current Worker configuration returned by `/admin/worker`.
 
 ## Integration Examples
 
@@ -188,7 +189,7 @@ Simple HTML pages with likes and/or comments support—no framework needed.
 
 ### Admin Dashboard
 
-Open [dashboard/index.html](./dashboard/index.html), enter your Worker URL and `ADMIN_API_KEY` when prompted, then manage comments and likes from one page. The dashboard keeps credentials only for the current browser session and prompts again if the admin session expires.
+Open [web/index.html](./web/index.html), enter your Worker URL and `ADMIN_API_KEY` when prompted, then manage comments and likes from one page. The dashboard does not store the raw admin key; it creates a short-lived session and prompts again when that session expires.
 
 ### Next.js / React
 
@@ -354,8 +355,19 @@ Response:
 
 ### Admin Endpoints
 
-Admin endpoints require either `Authorization: Bearer <ADMIN_API_KEY>` or `X-Admin-Key: <ADMIN_API_KEY>`.
-If `ADMIN_API_KEY_EXPIRES_AT` is set to a past ISO timestamp, admin requests are rejected.
+Admin endpoints require a short-lived session from **POST** `/admin/session`. Direct API clients may still use `Authorization: Bearer <ADMIN_API_KEY>` or `X-Admin-Key: <ADMIN_API_KEY>`. If `ADMIN_API_KEY_EXPIRES_AT` is set to a past ISO timestamp, admin login and direct admin-key requests are rejected.
+
+**POST** `/admin/session`
+
+```json
+{ "adminKey": "your-admin-key" }
+```
+
+Returns a short-lived session and sets an `HttpOnly`, `Secure` admin session cookie. The dashboard does not store a JavaScript-readable session token; refresh persistence depends on the browser accepting the session cookie. Set `ALLOWED_ORIGINS` to the exact dashboard origin so CORS credential requests can use the cookie safely. `ADMIN_SESSION_TTL_SECONDS` controls the session lifetime, defaults to one hour, and is clamped between 15 minutes and one hour. Configure it with `thread-cf admin-session --ttl 1h`.
+
+**DELETE** `/admin/session`
+
+Clears the admin session cookie.
 
 **GET** `/admin/summary`
 
@@ -413,7 +425,7 @@ Reads or replaces the denied keyword list used for automatic comment rejection. 
 
 **GET** `/admin/audit-logs?limit=25&method=POST&path=/blog&date=2026-05-21`
 
-Returns protected dashboard activity, optionally filtered by request method, path search, and a selected UTC date. Audit entries include action, method, path, response status, client IP, user agent, timestamp, sanitized details, and a short admin-key fingerprint. Raw admin keys and request bodies are not stored.
+Returns protected dashboard activity, optionally filtered by request method, path search, and a selected UTC date. Audit entries include action, method, path, response status, client IP, user agent, timestamp, sanitized details, and a short credential/session fingerprint. Raw admin keys and request bodies are not stored.
 
 **GET** `/comments/like?commentId=123`
 
@@ -505,7 +517,7 @@ CREATE TABLE comment_denied_keywords (
 
 ### Required
 
-- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins
+- `ALLOWED_ORIGINS`: Comma-separated list of exact browser origins. Include the dashboard origin; do not use `*` for secure admin sessions.
   ```
   ALLOWED_ORIGINS=https://mysite.com,https://www.mysite.com
   ```
