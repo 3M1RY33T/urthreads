@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>thread-cf</title>
-  <link rel="stylesheet" href="styles.css?v=99" />
+  <link rel="stylesheet" href="styles.css?v=110" />
 </head>
 <body>
   <div class="app-shell">
@@ -279,30 +279,6 @@
             </div>
           </section>
 
-          <section class="panel panel-spaced" aria-labelledby="worker-heading" data-panel>
-            <div class="panel-header">
-              <div class="panel-title-row">
-                <h3 id="worker-heading">Cloudflare Worker</h3>
-              </div>
-              <button
-                class="panel-toggle"
-                type="button"
-                data-collapse-toggle
-                aria-expanded="false"
-                aria-controls="worker-panel-body"
-                aria-label="Expand worker"
-                title="Expand worker"
-              >
-                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M6 9l6 6 6-6"></path>
-                </svg>
-              </button>
-            </div>
-            <div class="panel-body" id="worker-panel-body" data-collapsible-body hidden>
-              <ul class="worker-list" data-worker-list></ul>
-            </div>
-          </section>
-
           <section class="panel panel-spaced" aria-labelledby="audit-heading" data-panel>
             <div class="panel-header">
               <div class="panel-title-row">
@@ -380,6 +356,30 @@
                 </div>
               </div>
               <ul class="audit-list" data-audit-list></ul>
+            </div>
+          </section>
+
+          <section class="panel panel-spaced" aria-labelledby="worker-heading" data-panel>
+            <div class="panel-header">
+              <div class="panel-title-row">
+                <h3 id="worker-heading">Cloudflare Worker</h3>
+              </div>
+              <button
+                class="panel-toggle"
+                type="button"
+                data-collapse-toggle
+                aria-expanded="false"
+                aria-controls="worker-panel-body"
+                aria-label="Expand worker"
+                title="Expand worker"
+              >
+                <svg class="panel-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="panel-body" id="worker-panel-body" data-collapsible-body hidden>
+              <ul class="worker-list" data-worker-list></ul>
             </div>
           </section>
         </div>
@@ -462,6 +462,6 @@
       </div>
     </form>
   </div>
-  <script src="dashboard.js?v=56"></script>
+  <script src="dashboard.js?v=60"></script>
 </body>
 </html>

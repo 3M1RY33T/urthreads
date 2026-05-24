@@ -842,6 +842,12 @@
         ['path', { d: 'M18 6L6 18' }],
         ['path', { d: 'M6 6l12 12' }],
       ],
+      restore: [
+        ['path', { d: 'M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8' }],
+        ['path', { d: 'M21 3v5h-5' }],
+        ['path', { d: 'M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16' }],
+        ['path', { d: 'M3 21v-5h5' }],
+      ],
     };
     const button = document.createElement('button');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -990,22 +996,36 @@
     const actionButtons = document.createElement('div');
     actionButtons.className = 'comment-action-buttons';
 
-    const approveButton = makeActionIconButton('Approve comment', 'check', 'approve-action');
-    approveButton.addEventListener('click', () => updateComment(comment.id, 'approve'));
+    const isRejected = comment.status === 'rejected';
+    const approveButton = makeActionIconButton(
+      isRejected ? 'Restore comment' : 'Approve comment',
+      isRejected ? 'restore' : 'check',
+      isRejected ? 'approve-action restore-action' : 'approve-action'
+    );
+    approveButton.addEventListener('click', () => updateComment(
+      comment.id,
+      'approve',
+      '',
+      isRejected
+        ? {
+            confirmLabel: 'restore',
+            confirmMessage: 'This comment includes a denied keyword. Are you sure you want to restore it?',
+          }
+        : {}
+    ));
 
     const isHidden = Boolean(comment.hiddenAt);
-    const isDeleteAction = comment.status === 'approved';
+    const isDeleteAction = comment.status === 'approved' || isRejected;
     const rejectButton = makeActionIconButton(
       isDeleteAction ? 'Delete comment' : 'Deny comment',
       isDeleteAction ? 'trash' : 'x',
-      isDeleteAction ? 'delete-action' : 'deny-action'
+      isRejected ? 'delete-action rejected-delete-action' : isDeleteAction ? 'delete-action' : 'deny-action'
     );
-    rejectButton.disabled = comment.status === 'rejected';
     rejectButton.addEventListener('click', () => updateComment(
       comment.id,
       isDeleteAction ? 'delete' : 'reject',
-      isDeleteAction ? 'delete' : 'deny',
-      { hasReplies }
+      comment.status === 'approved' ? 'delete' : isRejected ? '' : 'deny',
+      { hasReplies: hasReplies && comment.status === 'approved' }
     ));
 
     if (comment.status !== 'approved') {
@@ -1423,8 +1443,9 @@
   }
 
   async function updateComment(id, action, destructiveLabel = '', options = {}) {
-    if (destructiveLabel) {
-      const confirmed = await confirmCommentAction(destructiveLabel);
+    const confirmLabel = options.confirmLabel || destructiveLabel;
+    if (confirmLabel) {
+      const confirmed = await confirmCommentAction(confirmLabel, options.confirmMessage || '');
       if (!confirmed) return;
     }
     if (destructiveLabel === 'delete' && options.hasReplies) {
@@ -1437,9 +1458,9 @@
 
     const statusVerb = action === 'approve'
       ? 'Approving'
-      : destructiveLabel === 'delete'
+      : action === 'delete'
         ? 'Deleting'
-        : destructiveLabel === 'hide'
+        : action === 'hide'
           ? 'Hiding'
         : 'Denying';
     setStatus(`${statusVerb} comment #${id}...`);

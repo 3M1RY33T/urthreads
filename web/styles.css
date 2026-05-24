@@ -109,19 +109,21 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 1fr;
+  grid-auto-rows: max-content;
+  align-content: start;
   min-height: 100vh;
 }
 
 .sidebar {
   padding: 20px;
-  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
 
 .sidebar-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
 }
@@ -554,12 +556,20 @@ body.modal-open {
   color: var(--success);
 }
 
+.comment-icon-button.restore-action {
+  color: var(--muted);
+}
+
 .comment-icon-button.deny-action {
   color: var(--danger);
 }
 
 .comment-icon-button.delete-action {
   color: var(--muted);
+}
+
+.comment-icon-button.rejected-delete-action {
+  color: var(--danger);
 }
 
 .comment-icon-button.hide-action {
@@ -729,7 +739,7 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 }
 
 .stats-chart-range button:hover:not(:disabled) {
-  color: #f38020;
+  color: var(--text);
 }
 
 .stats-chart-range button.is-active {
@@ -763,7 +773,7 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 }
 
 .stats-date-button:hover:not(:disabled) svg {
-  color: #f38020;
+  color: var(--text);
 }
 
 .stats-date-button:focus-visible {
@@ -810,7 +820,7 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 }
 
 .stats-date-nav:hover:not(:disabled) {
-  color: #f38020;
+  color: var(--text);
 }
 
 .stats-date-month {
@@ -865,8 +875,8 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 }
 
 .stats-date-day:hover:not(:disabled) {
-  border-color: #f38020;
-  color: #f38020;
+  border-color: var(--text);
+  color: var(--text);
 }
 
 .stats-date-day.is-selected:hover:not(:disabled) {
@@ -1025,12 +1035,14 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+  min-width: 0;
 }
 
 .panel {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
@@ -1143,12 +1155,20 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 }
 
 .likes-filters {
+  display: grid;
+  grid-template-columns: 40px minmax(140px, 220px) minmax(0, 1fr) 74px;
+  align-items: center;
   width: 100%;
-  justify-content: flex-start;
+  justify-content: stretch;
 }
 
 .likes-filters input[data-likes-path] {
-  flex: 1 1 180px;
+  min-width: 0;
+  max-width: none;
+}
+
+.likes-filters select[data-likes-sort],
+.likes-filters select[data-likes-limit] {
   max-width: none;
 }
 
@@ -1163,21 +1183,35 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 }
 
 .audit-filters {
+  display: grid;
+  grid-template-columns: minmax(154px, 220px) minmax(130px, 180px) minmax(0, 1fr) 74px;
+  align-items: center;
   width: 100%;
-  justify-content: flex-start;
+  justify-content: stretch;
+}
+
+.audit-filters .stats-date-picker,
+.audit-filters .stats-date-button {
+  min-width: 0;
+  width: 100%;
+}
+
+.audit-filters select[data-audit-method],
+.audit-filters select[data-audit-limit] {
+  max-width: none;
 }
 
 .audit-filters input[data-audit-path] {
-  flex: 1 1 160px;
+  min-width: 0;
   max-width: none;
 }
 
 .likes-filters select[data-likes-limit] {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .audit-filters select[data-audit-limit] {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .filters input,
@@ -1702,28 +1736,34 @@ button.post-title-copy-button:hover:not(:disabled) {
 }
 
 @media (max-width: 980px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-    grid-auto-rows: max-content;
-    align-content: start;
-  }
-
-  .sidebar {
-    align-self: start;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .sidebar-header {
-    align-items: center;
-  }
-
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .content-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .audit-filters {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .audit-filters .stats-date-picker,
+  .audit-filters select[data-audit-method],
+  .audit-filters input[data-audit-path],
+  .audit-filters select[data-audit-limit] {
+    flex: 1 1 100%;
+  }
+
+  .audit-filters .stats-date-button {
+    width: 100%;
+  }
+
+  .audit-filters select[data-audit-limit] {
+    margin-left: 0;
   }
 }
 
@@ -1831,7 +1871,7 @@ button.post-title-copy-button:hover:not(:disabled) {
 
   .likes-filters {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 1fr) 84px;
     align-items: center;
   }
 
@@ -1843,11 +1883,21 @@ button.post-title-copy-button:hover:not(:disabled) {
   .likes-filters .rank-toggle {
     grid-column: 2;
     grid-row: 1;
+    justify-self: end;
   }
 
   .likes-filters input,
   .likes-filters select[data-likes-limit] {
-    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .likes-filters input[data-likes-path] {
+    grid-column: 1;
+  }
+
+  .likes-filters select[data-likes-limit] {
+    grid-column: 2;
+    width: 100%;
   }
 
   .likes-filters select[data-likes-limit] {
@@ -1856,7 +1906,7 @@ button.post-title-copy-button:hover:not(:disabled) {
 
   .comments-filters {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 1fr) 84px;
     align-items: center;
   }
 
@@ -1873,7 +1923,16 @@ button.post-title-copy-button:hover:not(:disabled) {
 
   .comments-filters input[data-comment-path],
   .comments-filters select[data-comment-limit] {
-    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .comments-filters input[data-comment-path] {
+    grid-column: 1;
+  }
+
+  .comments-filters select[data-comment-limit] {
+    grid-column: 2;
+    width: 100%;
   }
 
   .comments-filters .keyword-popover {
@@ -1886,7 +1945,23 @@ button.post-title-copy-button:hover:not(:disabled) {
     width: 100%;
   }
 
+  .audit-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 84px;
+    align-items: center;
+  }
+
+  .audit-filters .stats-date-picker,
+  .audit-filters select[data-audit-method] {
+    grid-column: 1 / -1;
+  }
+
+  .audit-filters input[data-audit-path] {
+    grid-column: 1;
+  }
+
   .audit-filters select[data-audit-limit] {
+    grid-column: 2;
     margin-left: 0;
   }
 
