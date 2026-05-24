@@ -1,7 +1,7 @@
 (function() {
   const storageKeys = {
-    workerUrl: 'thread-cf:admin:workerUrl',
-    theme: 'thread-cf:admin:theme',
+    workerUrl: 'urthreads:admin:workerUrl',
+    theme: 'urthreads:admin:theme',
   };
 
   const state = {

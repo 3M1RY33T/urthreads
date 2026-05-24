@@ -48,7 +48,7 @@ test("upserts admin key values while preserving unrelated env lines", () => {
     "CLOUDFLARE_ACCOUNT_ID=account",
     "ADMIN_API_KEY=old-key",
     "ADMIN_API_KEY=duplicate-key",
-    "D1_DATABASE_NAME=likes-and-comments",
+    "D1_DATABASE_NAME=your-threads",
     "",
   ].join("\n");
 
@@ -58,14 +58,14 @@ test("upserts admin key values while preserving unrelated env lines", () => {
   });
 
   assert.ok(updated.includes("CLOUDFLARE_ACCOUNT_ID=account"));
-  assert.ok(updated.includes("D1_DATABASE_NAME=likes-and-comments"));
+  assert.ok(updated.includes("D1_DATABASE_NAME=your-threads"));
   assert.strictEqual((updated.match(/^ADMIN_API_KEY=/gm) || []).length, 1);
   assert.ok(updated.includes("ADMIN_API_KEY=new-key"));
   assert.ok(updated.includes("ADMIN_API_KEY_EXPIRES_AT=2026-06-19T12:00:00.000Z"));
 });
 
 test("writes a new env file when one does not exist", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "thread-cf-admin-key-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-admin-key-"));
   const envPath = path.join(tmpDir, ".env");
 
   writeEnvFile(envPath, {
@@ -87,7 +87,7 @@ test("parses admin key CLI flags", () => {
 });
 
 test("does not print generated admin key and copies it to clipboard", async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "thread-cf-admin-key-output-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-admin-key-output-"));
   const envPath = path.join(tmpDir, ".env");
   const generatedKey = "secret-admin-key-value";
   let clipboardValue = "";

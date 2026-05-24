@@ -68,7 +68,7 @@ const WRANGLER_COMMANDS = new Set([
 
 function showHelp() {
   process.stdout.write(`
-urthreads - Cloudflare Likes & Comments
+urthreads - self-hosted static-site engagement
 
 USAGE:
   urthreads <command> [params]

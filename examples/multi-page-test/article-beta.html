@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Article Beta - urthreads Multi-Page Test</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="site">
+    <header class="masthead">
+      <nav class="nav" aria-label="Example pages">
+        <a href="index.html">Hub</a>
+        <a href="article-alpha.html">Article Alpha</a>
+        <a href="article-beta.html">Article Beta</a>
+        <a href="comment-lab.html">Comment Lab</a>
+      </nav>
+      <h1>Article Beta</h1>
+      <p>A second full article for verifying that likes, comments, dashboard post stats, and audit log entries remain tied to the requested path.</p>
+      <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+    </header>
+
+    <article class="article">
+      <h2>Path isolation</h2>
+      <p>This page uses `/examples/multi-page-test/article-beta`. Comments approved for Article Alpha should not render here.</p>
+      <p>Post a different comment on this page and compare both paths in the dashboard Posts and Comments views.</p>
+    </article>
+
+    <section class="engagement" aria-label="Article Beta likes">
+      <h2>Likes</h2>
+      <div class="like-row">
+        <button data-like-button data-path="/examples/multi-page-test/article-beta">
+          Like Article Beta (<span data-like-count>0</span>)
+        </button>
+      </div>
+    </section>
+
+    <section
+      class="comments-container"
+      data-worker-comments
+      data-page-id="/examples/multi-page-test/article-beta"
+      data-page-url="http://localhost:8000/examples/multi-page-test/article-beta.html"
+      data-page-title="Article Beta"
+    >
+      <h2>Comments</h2>
+      <div data-comment-list></div>
+      <form data-comment-draft-form>
+        <textarea name="content" required placeholder="Write a test comment for Article Beta"></textarea>
+        <button type="submit" data-comment-send disabled>Post comment</button>
+      </form>
+      <div data-comment-status></div>
+
+      <div data-comment-modal hidden>
+        <form class="modal-dialog" data-comment-identity-form>
+          <h3>Comment identity</h3>
+          <div class="field">
+            <label for="beta-nickname">Nickname</label>
+            <input id="beta-nickname" name="nickname" required />
+          </div>
+          <div class="field">
+            <label for="beta-email">Email</label>
+            <input id="beta-email" name="email" type="email" />
+          </div>
+          <div class="field">
+            <label for="beta-website">Website</label>
+            <input id="beta-website" name="website" type="url" />
+          </div>
+          <div class="form-actions">
+            <button class="cancel-button" type="button" data-comment-cancel>Cancel</button>
+            <button class="submit-button" type="submit">Submit</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="../../client/likes.js"></script>
+  <script src="../../client/comments.js"></script>
+</body>
+</html>

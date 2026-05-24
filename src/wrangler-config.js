@@ -449,7 +449,7 @@ function openWranglerToml(filePath, options = {}) {
 
 function showHelp(commandName = "node src/wrangler-config.js") {
   process.stdout.write(`
-Cloudflare Likes & Comments Wrangler Config
+urthreads Wrangler Config
 
 USAGE:
   ${commandName} init

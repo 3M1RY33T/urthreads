@@ -40,7 +40,7 @@ test("prints top-level help", () => {
   const result = runThreadCf(["--help"]);
 
   assert.strictEqual(result.status, 0);
-  assert.ok(result.stdout.includes("urthreads - Cloudflare Likes & Comments"));
+  assert.ok(result.stdout.includes("urthreads - self-hosted static-site engagement"));
   assert.ok(result.stdout.includes("setup-env"));
   assert.ok(result.stdout.includes("wrangler-init"));
   assert.ok(result.stdout.includes("env add-origin"));
@@ -54,7 +54,7 @@ test("routes setup help through urthreads", () => {
   const result = runThreadCf(["setup-env", "--help"]);
 
   assert.strictEqual(result.status, 0);
-  assert.ok(result.stdout.includes("Cloudflare Likes & Comments .env Setup"));
+  assert.ok(result.stdout.includes("urthreads .env Setup"));
   assert.ok(result.stdout.includes("urthreads setup-env"));
 });
 

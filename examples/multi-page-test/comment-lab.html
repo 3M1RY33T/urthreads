@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Comment Lab - urthreads Multi-Page Test</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="site">
+    <header class="masthead">
+      <nav class="nav" aria-label="Example pages">
+        <a href="index.html">Hub</a>
+        <a href="article-alpha.html">Article Alpha</a>
+        <a href="article-beta.html">Article Beta</a>
+        <a href="comment-lab.html">Comment Lab</a>
+      </nav>
+      <h1>Comment Lab</h1>
+      <p>This page intentionally hosts two comment widgets on one HTML document. They use different `data-page-id` values to test same-page isolation.</p>
+      <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+    </header>
+
+    <section class="grid" aria-label="Comment lab likes">
+      <article class="card">
+        <h2>Section A like</h2>
+        <button data-like-button data-path="/examples/multi-page-test/comment-lab/a">
+          Like section A (<span data-like-count>0</span>)
+        </button>
+      </article>
+      <article class="card">
+        <h2>Section B like</h2>
+        <button data-like-button data-path="/examples/multi-page-test/comment-lab/b">
+          Like section B (<span data-like-count>0</span>)
+        </button>
+      </article>
+      <article class="card">
+        <h2>Expected result</h2>
+        <p>Comments posted to section A should never render in section B, even though both widgets share the same page URL.</p>
+      </article>
+    </section>
+
+    <section
+      class="comments-container"
+      data-worker-comments
+      data-page-id="/examples/multi-page-test/comment-lab/a"
+      data-page-url="http://localhost:8000/examples/multi-page-test/comment-lab.html#section-a"
+      data-page-title="Comment Lab Section A"
+    >
+      <h2>Section A Comments</h2>
+      <div data-comment-list></div>
+      <form data-comment-draft-form>
+        <textarea name="content" required placeholder="Write a comment for Section A"></textarea>
+        <button type="submit" data-comment-send disabled>Post to section A</button>
+      </form>
+      <div data-comment-status></div>
+
+      <div data-comment-modal hidden>
+        <form class="modal-dialog" data-comment-identity-form>
+          <h3>Section A identity</h3>
+          <div class="field">
+            <label for="lab-a-nickname">Nickname</label>
+            <input id="lab-a-nickname" name="nickname" required />
+          </div>
+          <div class="field">
+            <label for="lab-a-email">Email</label>
+            <input id="lab-a-email" name="email" type="email" />
+          </div>
+          <div class="field">
+            <label for="lab-a-website">Website</label>
+            <input id="lab-a-website" name="website" type="url" />
+          </div>
+          <div class="form-actions">
+            <button class="cancel-button" type="button" data-comment-cancel>Cancel</button>
+            <button class="submit-button" type="submit">Submit</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section
+      id="section-b"
+      class="comments-container"
+      data-worker-comments
+      data-page-id="/examples/multi-page-test/comment-lab/b"
+      data-page-url="http://localhost:8000/examples/multi-page-test/comment-lab.html#section-b"
+      data-page-title="Comment Lab Section B"
+    >
+      <h2>Section B Comments</h2>
+      <div data-comment-list></div>
+      <form data-comment-draft-form>
+        <textarea name="content" required placeholder="Write a comment for Section B"></textarea>
+        <button type="submit" data-comment-send disabled>Post to section B</button>
+      </form>
+      <div data-comment-status></div>
+
+      <div data-comment-modal hidden>
+        <form class="modal-dialog" data-comment-identity-form>
+          <h3>Section B identity</h3>
+          <div class="field">
+            <label for="lab-b-nickname">Nickname</label>
+            <input id="lab-b-nickname" name="nickname" required />
+          </div>
+          <div class="field">
+            <label for="lab-b-email">Email</label>
+            <input id="lab-b-email" name="email" type="email" />
+          </div>
+          <div class="field">
+            <label for="lab-b-website">Website</label>
+            <input id="lab-b-website" name="website" type="url" />
+          </div>
+          <div class="form-actions">
+            <button class="cancel-button" type="button" data-comment-cancel>Cancel</button>
+            <button class="submit-button" type="submit">Submit</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="../../client/likes.js"></script>
+  <script src="../../client/comments.js"></script>
+</body>
+</html>

@@ -123,7 +123,7 @@ async function selectSessionTtl(prompter, output = process.stdout) {
 
 function showHelp(commandName = "node src/admin-session.js") {
   process.stdout.write(`
-Cloudflare Likes & Comments Admin Session Config
+urthreads Admin Session Config
 
 USAGE:
   ${commandName}

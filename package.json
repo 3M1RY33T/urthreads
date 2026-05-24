@@ -2,7 +2,16 @@
   "name": "urthreads",
   "version": "1.0.0",
   "description": "A Cloudflare Workers and D1 engagement system for static-site likes and comments.",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
+  "author": "Yigit Emir Yildiz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/3M1RY33T/cloudflare-likes-and-comments.git"
+  },
+  "bugs": {
+    "url": "https://github.com/3M1RY33T/cloudflare-likes-and-comments/issues"
+  },
+  "homepage": "https://github.com/3M1RY33T/cloudflare-likes-and-comments#readme",
   "keywords": [
     "cloudflare",
     "workers",
@@ -16,10 +25,11 @@
   },
   "files": [
     ".env.example",
+    "assets/",
     "client/",
     "config/",
-    "examples/",
     "src/",
+    "test/",
     "web/",
     "README.md",
     "LICENSE"
@@ -29,6 +39,8 @@
   },
   "scripts": {
     "setup:env": "node src/thread-cf.js setup-env",
+    "check": "node --check src/worker.js && node --check src/thread-cf.js && node --check src/setup-env.js && node --check src/wrangler-config.js && node --check web/dashboard.js",
+    "prepublishOnly": "npm test && npm run check",
     "test": "node --test"
   }
 }

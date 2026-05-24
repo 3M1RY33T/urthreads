@@ -330,7 +330,7 @@ function getSqlHealthCheck() {
  */
 function showHelp(commandName = "node src/cli.js") {
   log(`
-Cloudflare Likes & Comments CLI - Comment Management Tool
+urthreads CLI - Comment Management Tool
 
 USAGE:
   ${commandName} <command> [params]

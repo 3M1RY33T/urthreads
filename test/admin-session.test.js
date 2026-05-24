@@ -32,7 +32,7 @@ test("parses admin session CLI flags", () => {
 });
 
 test("writes admin session TTL to env file", async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "thread-cf-admin-session-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-admin-session-"));
   const envPath = path.join(tmpDir, ".env");
   fs.writeFileSync(envPath, "ADMIN_API_KEY=existing\n", "utf8");
 

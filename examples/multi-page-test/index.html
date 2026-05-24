@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>urthreads Multi-Page Test</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="site">
+    <header class="masthead">
+      <nav class="nav" aria-label="Example pages">
+        <a href="index.html">Hub</a>
+        <a href="article-alpha.html">Article Alpha</a>
+        <a href="article-beta.html">Article Beta</a>
+        <a href="comment-lab.html">Comment Lab</a>
+      </nav>
+      <h1>urthreads multi-page test</h1>
+      <p>This static mini-site exercises likes and comments across separate paths. Use it with `wrangler dev` or a deployed Worker to verify path isolation, moderation, replies, and comment likes.</p>
+      <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+    </header>
+
+    <section class="grid" aria-label="Test pages">
+      <article class="card">
+        <h2>Hub path</h2>
+        <p>Tests a like button on the index route.</p>
+        <button data-like-button data-path="/examples/multi-page-test/">
+          Like hub (<span data-like-count>0</span>)
+        </button>
+      </article>
+
+      <article class="card">
+        <h2>Article Alpha</h2>
+        <p>Full likes and comments flow, including replies after approval.</p>
+        <div class="like-row">
+          <a class="button-link" href="article-alpha.html">Open</a>
+          <button data-like-button data-path="/examples/multi-page-test/article-alpha">
+            Like (<span data-like-count>0</span>)
+          </button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Article Beta</h2>
+        <p>A second full article to confirm Alpha data does not bleed over.</p>
+        <div class="like-row">
+          <a class="button-link" href="article-beta.html">Open</a>
+          <button data-like-button data-path="/examples/multi-page-test/article-beta">
+            Like (<span data-like-count>0</span>)
+          </button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Comment Lab A</h2>
+        <p>One of two comment sections on the same HTML page.</p>
+        <div class="like-row">
+          <a class="button-link" href="comment-lab.html">Open</a>
+          <button data-like-button data-path="/examples/multi-page-test/comment-lab/a">
+            Like (<span data-like-count>0</span>)
+          </button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Comment Lab B</h2>
+        <p>A sibling path for testing same-page comment isolation.</p>
+        <div class="like-row">
+          <a class="button-link" href="comment-lab.html#section-b">Open</a>
+          <button data-like-button data-path="/examples/multi-page-test/comment-lab/b">
+            Like (<span data-like-count>0</span>)
+          </button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Endpoint switch</h2>
+        <p>Append `?worker=https://your-worker.workers.dev` to this page to test a deployed Worker. Append `?resetWorker=1` to return to local dev.</p>
+      </article>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="../../client/likes.js"></script>
+</body>
+</html>

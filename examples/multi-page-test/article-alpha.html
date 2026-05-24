@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Article Alpha - urthreads Multi-Page Test</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="site">
+    <header class="masthead">
+      <nav class="nav" aria-label="Example pages">
+        <a href="index.html">Hub</a>
+        <a href="article-alpha.html">Article Alpha</a>
+        <a href="article-beta.html">Article Beta</a>
+        <a href="comment-lab.html">Comment Lab</a>
+      </nav>
+      <h1>Article Alpha</h1>
+      <p>Use this page for the main end-to-end comment flow: submit, moderate in the dashboard, reload, reply, and like an approved comment.</p>
+      <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+    </header>
+
+    <article class="article">
+      <h2>Primary article path</h2>
+      <p>This page uses the canonical path `/examples/multi-page-test/article-alpha` for both likes and comments.</p>
+      <p>Submit a top-level comment, approve it in the dashboard, then return here to verify the approved thread loads on refresh.</p>
+      <h2>Reply test</h2>
+      <p>After a comment is approved, use its Reply button. The reply should be submitted with the approved comment as `parentId` and should also require moderation.</p>
+    </article>
+
+    <section class="engagement" aria-label="Article Alpha likes">
+      <h2>Likes</h2>
+      <div class="like-row">
+        <button data-like-button data-path="/examples/multi-page-test/article-alpha">
+          Like Article Alpha (<span data-like-count>0</span>)
+        </button>
+      </div>
+    </section>
+
+    <section
+      class="comments-container"
+      data-worker-comments
+      data-page-id="/examples/multi-page-test/article-alpha"
+      data-page-url="http://localhost:8000/examples/multi-page-test/article-alpha.html"
+      data-page-title="Article Alpha"
+    >
+      <h2>Comments</h2>
+      <div data-comment-list></div>
+      <form data-comment-draft-form>
+        <textarea name="content" required placeholder="Write a test comment for Article Alpha"></textarea>
+        <button type="submit" data-comment-send disabled>Post comment</button>
+      </form>
+      <div data-comment-status></div>
+
+      <div data-comment-modal hidden>
+        <form class="modal-dialog" data-comment-identity-form>
+          <h3>Comment identity</h3>
+          <div class="field">
+            <label for="alpha-nickname">Nickname</label>
+            <input id="alpha-nickname" name="nickname" required />
+          </div>
+          <div class="field">
+            <label for="alpha-email">Email</label>
+            <input id="alpha-email" name="email" type="email" />
+          </div>
+          <div class="field">
+            <label for="alpha-website">Website</label>
+            <input id="alpha-website" name="website" type="url" />
+          </div>
+          <div class="form-actions">
+            <button class="cancel-button" type="button" data-comment-cancel>Cancel</button>
+            <button class="submit-button" type="submit">Submit</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="../../client/likes.js"></script>
+  <script src="../../client/comments.js"></script>
+</body>
+</html>

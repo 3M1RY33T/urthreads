@@ -13,7 +13,7 @@ const {
 } = require("../src/env-config");
 
 function makeTempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "thread-cf-env-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-env-"));
 }
 
 test("normalizes exact http and https origins", () => {

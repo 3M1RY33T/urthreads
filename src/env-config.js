@@ -181,7 +181,7 @@ function openEnvFile(envPath, options = {}) {
 
 function showHelp(commandName = "node src/env-config.js") {
   process.stdout.write(`
-Cloudflare Likes & Comments Environment Config
+urthreads Environment Config
 
 USAGE:
   ${commandName} add-origin <origin...> [--target default|staging|prod]

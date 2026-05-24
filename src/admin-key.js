@@ -250,7 +250,7 @@ function parseArgs(argv = []) {
 
 function showHelp(commandName = "node src/admin-key.js") {
   process.stdout.write(`
-Cloudflare Likes & Comments Admin Key Generator
+urthreads Admin Key Generator
 
 USAGE:
   ${commandName}
