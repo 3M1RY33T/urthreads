@@ -1,7 +1,7 @@
+# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Tests
+
 | [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | *> Tests <* |
 | --- | --- | --- | --- | --- |
-
-# Tests
 
 This directory contains Node's built-in test runner coverage for the CLI and setup helpers.
 
@@ -23,7 +23,7 @@ node --test
 - `admin-session.test.js`: dashboard session TTL parsing and `.env` updates.
 - `cli.test.js`: moderation and D1 SQL command builders.
 - `env-config.test.js`: allowed origin merging, wildcard removal, sensitive output hiding, and `.env` opening behavior.
-- `setup-env.test.js`: Worker URL normalization, endpoint generation, origin list cleanup, and `.env` generation.
+- `setup-env.test.js`: Worker URL normalization, endpoint generation, origin list cleanup, Wrangler D1 creation parsing, hidden prompts, and `.env` generation.
 - `thread-cf.test.js`: top-level command routing and help output.
 - `wrangler-config.test.js`: `wrangler.toml` generation, value updates, listing, and CLI routing.
 

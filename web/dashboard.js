@@ -43,6 +43,7 @@
     sessionActions: document.querySelectorAll('[data-session-action]'),
     status: document.querySelector('[data-status]'),
     themeToggle: document.querySelector('[data-theme-toggle]'),
+    logoRefresh: document.querySelector('[data-logo-refresh]'),
     refresh: document.querySelector('[data-refresh]'),
     pageLikes: document.querySelector('[data-page-likes]'),
     commentLikes: document.querySelector('[data-comment-likes]'),
@@ -1767,6 +1768,7 @@
     }
     setKeywordPopoverOpen(false);
   });
+  elements.logoRefresh.addEventListener('click', () => window.location.reload());
   elements.refresh.addEventListener('click', refreshAll);
   elements.statsDateToggle.addEventListener('click', () => {
     setStatsDatePopoverOpen(elements.statsDateToggle.getAttribute('aria-expanded') !== 'true');

@@ -10,6 +10,8 @@ const adminSessionCli = require("./admin-session");
 const envConfigCli = require("./env-config");
 const setupEnvCli = require("./setup-env");
 const wranglerConfigCli = require("./wrangler-config");
+const backoutCli = require("./backout");
+const { formatHelp } = require("./help-format");
 
 const MODERATION_COMMANDS = new Set([
   "pending",
@@ -66,8 +68,19 @@ const WRANGLER_COMMANDS = new Set([
   "wrangler-toml",
 ]);
 
+const BACKOUT_COMMANDS = new Set([
+  "clean",
+  "clean-all",
+  "clean-files",
+  "clean-cache",
+  "clean-env",
+  "delete-worker",
+  "backout",
+  "reset-setup",
+]);
+
 function showHelp() {
-  process.stdout.write(`
+  process.stdout.write(formatHelp(`
 urthreads - self-hosted static-site engagement
 
 USAGE:
@@ -83,6 +96,10 @@ SETUP COMMANDS:
   env open             Open .env in the system text viewer
   admin-key            Generate/rotate ADMIN_API_KEY in .env
   admin-session        Configure ADMIN_SESSION_TTL_SECONDS in .env
+  clean                Remove caches and local working files
+  clean-all            Remove caches, working files, and environment files
+  clean-env            Remove setup files and optionally delete Worker
+  delete-worker        Delete the deployed Cloudflare Worker with confirmation
 
 COMMENT MANAGEMENT:
   pending              List all pending comments
@@ -112,22 +129,7 @@ HELP:
   setup-env --help     Show .env setup help
   comments help        Show comment management help
 
-EXAMPLES:
-  urthreads setup-env
-  urthreads wrangler-init
-  urthreads wrangler set database_id your-d1-id
-  urthreads env add-origin http://localhost:8000
-  urthreads env open
-  urthreads admin-key
-  urthreads admin-key --expires 30d
-  urthreads admin-session --ttl 1h
-  urthreads pending
-  urthreads approve 5
-  urthreads list-approved /blog/my-post
-  urthreads list-likes
-  urthreads set-like /blog/my-post 10 --execute
-
-`);
+`));
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -170,6 +172,16 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (BACKOUT_COMMANDS.has(command)) {
+    const backoutArgs = command === "backout" || command === "reset-setup"
+      ? argv.slice(1)
+      : argv;
+    await backoutCli.main(backoutArgs, {
+      commandName: command === "backout" || command === "reset-setup" ? `urthreads ${command}` : "urthreads",
+    });
+    return;
+  }
+
   if (command === "comments") {
     await moderationCli.main(argv.slice(1), { commandName: "urthreads comments" });
     return;
@@ -199,6 +211,7 @@ module.exports = {
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
   WRANGLER_COMMANDS,
+  BACKOUT_COMMANDS,
   main,
   showHelp,
 };

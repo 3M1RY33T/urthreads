@@ -5,6 +5,7 @@ const { test } = require("node:test");
 const {
   ADMIN_KEY_COMMANDS,
   ADMIN_SESSION_COMMANDS,
+  BACKOUT_COMMANDS,
   ENV_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
@@ -26,6 +27,10 @@ test("exposes setup and moderation command groups", () => {
   assert.strictEqual(ADMIN_KEY_COMMANDS.has("rotate-admin-key"), true);
   assert.strictEqual(ADMIN_SESSION_COMMANDS.has("admin-session"), true);
   assert.strictEqual(ADMIN_SESSION_COMMANDS.has("session-ttl"), true);
+  assert.strictEqual(BACKOUT_COMMANDS.has("clean"), true);
+  assert.strictEqual(BACKOUT_COMMANDS.has("clean-all"), true);
+  assert.strictEqual(BACKOUT_COMMANDS.has("clean-env"), true);
+  assert.strictEqual(BACKOUT_COMMANDS.has("delete-worker"), true);
   assert.strictEqual(ENV_COMMANDS.has("env"), true);
   assert.strictEqual(ENV_COMMANDS.has("origins"), true);
   assert.strictEqual(WRANGLER_COMMANDS.has("wrangler-init"), true);
@@ -46,6 +51,10 @@ test("prints top-level help", () => {
   assert.ok(result.stdout.includes("env add-origin"));
   assert.ok(result.stdout.includes("admin-key"));
   assert.ok(result.stdout.includes("admin-session"));
+  assert.ok(result.stdout.includes("clean"));
+  assert.ok(result.stdout.includes("clean-all"));
+  assert.ok(result.stdout.includes("clean-env"));
+  assert.ok(result.stdout.includes("delete-worker"));
   assert.ok(result.stdout.includes("approve <id>"));
   assert.ok(result.stdout.includes("set-like <path> <n>"));
 });
@@ -90,10 +99,18 @@ test("routes admin session help through urthreads", () => {
   assert.ok(result.stdout.includes("urthreads admin-session"));
 });
 
+test("routes back-out help through urthreads", () => {
+  const result = runThreadCf(["backout", "--help"]);
+
+  assert.strictEqual(result.status, 0);
+  assert.ok(result.stdout.includes("Back-Out Commands"));
+  assert.ok(result.stdout.includes("urthreads backout"));
+});
+
 test("routes comment management help through urthreads", () => {
   const result = runThreadCf(["comments", "help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Comment Management Tool"));
-  assert.ok(result.stdout.includes("urthreads comments approve 5"));
+  assert.ok(result.stdout.includes("approve <id>"));
 });

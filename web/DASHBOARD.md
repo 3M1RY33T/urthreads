@@ -1,9 +1,11 @@
+# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Dashboard
+
 | [Overview](../README.md) | *> Dashboard <* | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | [Tests](../test/TESTS.md) |
 | --- | --- | --- | --- | --- |
 
-# Dashboard
-
 `web/` contains the static admin dashboard.
+
+![Dashboard](../assets/img/dashboard-threads.png)
 
 Files:
 
@@ -12,6 +14,37 @@ Files:
 - `styles.css`: dashboard layout, light/dark theme, responsive behavior, popovers, modals, and thread visuals.
 
 Open `index.html` in a browser or serve it from a static host. The dashboard talks directly to the deployed Worker admin endpoints.
+
+## Recommended Hosting
+
+For production, host the static dashboard on the same site you use for your public content, usually under `/urthreads/`:
+
+```text
+Dashboard UI: https://www.myblog.com/urthreads/
+Worker API:   https://urthreads-worker.your-subdomain.workers.dev
+```
+
+Copy the contents of `web/` into your site's `/urthreads/` output directory. The hosted path should serve:
+
+- `https://www.myblog.com/urthreads/index.html`
+- `https://www.myblog.com/urthreads/dashboard.js`
+- `https://www.myblog.com/urthreads/styles.css`
+
+When the dashboard opens, enter the Worker API origin, such as:
+
+```text
+https://urthreads-worker.your-subdomain.workers.dev
+```
+
+The Worker uses this base URL to call protected admin endpoints such as `/admin/session`, `/admin/summary`, `/admin/comments`, and `/admin/likes`.
+
+Add the dashboard origin to `ALLOWED_ORIGINS`. The origin is only scheme plus host plus optional port; it does not include `/urthreads/`.
+
+```bash
+urthreads env add-origin https://www.myblog.com
+urthreads wrangler set ALLOWED_ORIGINS https://www.myblog.com
+wrangler deploy
+```
 
 ## First Login
 
@@ -78,6 +111,8 @@ The legend stays in the section header; range and date controls sit in the colla
 
 ## Comments
 
+![Comments](../assets/img/dashboard-comments.png)
+
 The Comments section supports:
 
 - status filtering: all, pending, approved, hidden, rejected
@@ -101,6 +136,8 @@ Rejected comments include special restore logic. Restoring a rejected comment pr
 Deleting a comment that has replies warns the user that child replies will also be deleted. The Worker deletes descendants recursively.
 
 ## Denied Keywords
+
+![Denied Keywords](../assets/img/denied-keywords.png)
 
 The denied keywords popover lets moderators add and remove automatic rejection keywords.
 

@@ -10,7 +10,9 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { spawnSync } = require("child_process");
 const { buildWranglerTomlContent } = require("./wrangler-config");
+const { formatHelp } = require("./help-format");
 
 const DEFAULTS = {
   databaseName: "your-threads",
@@ -48,6 +50,52 @@ function sanitizeOriginList(value) {
 
 function envLine(key, value) {
   return `${key}=${String(value ?? "")}`;
+}
+
+function runWrangler(args, options = {}) {
+  const runner = options.runner || spawnSync;
+  return runner("wrangler", args, {
+    encoding: "utf8",
+    stdio: options.stdio || "pipe",
+  });
+}
+
+function commandSucceeded(result) {
+  return !result?.error && (typeof result?.status !== "number" || result.status === 0);
+}
+
+function getCommandOutput(result) {
+  return `${result?.stdout || ""}\n${result?.stderr || ""}`.trim();
+}
+
+function parseD1DatabaseId(output) {
+  const text = String(output || "");
+  const assignment = text.match(/database_id\s*=\s*"([^"]+)"/i);
+  if (assignment) return assignment[1].trim();
+
+  const jsonField = text.match(/"database_id"\s*:\s*"([^"]+)"/i);
+  if (jsonField) return jsonField[1].trim();
+
+  const uuid = text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i);
+  return uuid ? uuid[0] : "";
+}
+
+function isWranglerInstalled(options = {}) {
+  return commandSucceeded(runWrangler(["--version"], options));
+}
+
+function isWranglerAuthenticated(options = {}) {
+  return commandSucceeded(runWrangler(["whoami"], options));
+}
+
+function createD1Database(databaseName, options = {}) {
+  const result = runWrangler(["d1", "create", databaseName], options);
+  const output = getCommandOutput(result);
+  return {
+    ok: commandSucceeded(result),
+    databaseId: parseD1DatabaseId(output),
+    output,
+  };
 }
 
 function buildEnvContent(config) {
@@ -103,7 +151,7 @@ function buildEnvContent(config) {
 }
 
 function showHelp(commandName = "node src/setup-env.js") {
-  process.stdout.write(`
+  process.stdout.write(formatHelp(`
 urthreads .env Setup
 
 USAGE:
@@ -115,29 +163,51 @@ DESCRIPTION:
   D1, Worker deployment, CORS, and client endpoint values.
 
 WHAT YOU NEED:
-  - Cloudflare account ID
-  - D1 database name and ID
+  - Wrangler installed and authenticated, or existing Cloudflare/D1 values
+  - D1 database name
   - Worker URL after deployment, or the URL you plan to use
   - Allowed website origins for CORS
 
 SAFETY:
-  - Real .env files are ignored by Git.
+  - Sensitive setup prompts are hidden while you type.
+  - Never commit real .env files.
   - Existing .env files are not overwritten unless you confirm.
 
-EXAMPLES:
-  urthreads setup-env
-  npm run setup:env
-
-`);
+`));
 }
 
 function createPrompter(input = process.stdin, output = process.stdout) {
   const rl = readline.createInterface({ input, output });
+  const originalWriteToOutput = rl._writeToOutput;
 
   function ask(question, defaultValue = "") {
     const suffix = defaultValue ? ` (${defaultValue})` : "";
     return new Promise((resolve) => {
       rl.question(`${question}${suffix}: `, (answer) => {
+        const value = answer.trim();
+        resolve(value || defaultValue);
+      });
+    });
+  }
+
+  function askHidden(question, defaultValue = "") {
+    if (!input.isTTY || !output.isTTY) return ask(question, defaultValue);
+
+    const suffix = defaultValue ? ` (${defaultValue})` : "";
+    const prompt = `${question}${suffix}: `;
+
+    return new Promise((resolve) => {
+      let promptWritten = false;
+      rl._writeToOutput = function writeHiddenPrompt(text) {
+        if (!promptWritten && text === prompt) {
+          promptWritten = true;
+          output.write(text);
+        }
+      };
+
+      rl.question(prompt, (answer) => {
+        rl._writeToOutput = originalWriteToOutput;
+        output.write("\n");
         const value = answer.trim();
         resolve(value || defaultValue);
       });
@@ -154,41 +224,117 @@ function createPrompter(input = process.stdin, output = process.stdout) {
 
   return {
     ask,
+    askHidden,
     confirm,
-    close: () => rl.close(),
+    close: () => {
+      rl._writeToOutput = originalWriteToOutput;
+      rl.close();
+    },
   };
 }
 
-async function collectConfig(prompter, output = process.stdout) {
+async function collectConfig(prompter, output = process.stdout, options = {}) {
   output.write("\nurthreads .env setup\n");
   output.write("This will create a local .env file for deployment and CLI commands.\n\n");
 
   output.write("Before you start, make sure you have:\n");
   output.write("  1. A Cloudflare account\n");
   output.write("  2. Wrangler installed and authenticated: npm install -g wrangler && wrangler login\n");
-  output.write("  3. A D1 database created: wrangler d1 create your-threads\n\n");
+  output.write("  3. A D1 database name you want to create or use, such as your-threads\n\n");
 
-  const accountId = await prompter.ask(
-    "Cloudflare account ID",
-    DEFAULTS.accountId
-  );
+  let wranglerInstalled = false;
+  let wranglerAuthenticated = false;
+  if (options.useWrangler !== false) {
+    wranglerInstalled = isWranglerInstalled(options);
+    if (wranglerInstalled) {
+      wranglerAuthenticated = isWranglerAuthenticated(options);
+      if (!wranglerAuthenticated) {
+        output.write("Wrangler is installed, but you do not appear to be authenticated.\n");
+        const shouldLogin = await prompter.confirm("Run wrangler login now?", true);
+        if (shouldLogin) {
+          const loginResult = runWrangler(["login"], { ...options, stdio: "inherit" });
+          if (commandSucceeded(loginResult)) {
+            wranglerAuthenticated = isWranglerAuthenticated(options);
+          } else {
+            output.write("Wrangler login did not complete. You can continue with manual values.\n");
+          }
+        }
+      }
+    } else {
+      output.write("Wrangler was not found. You can continue with manual Cloudflare and D1 values.\n");
+    }
+  }
 
-  output.write("\nCloudflare API token is optional if you use wrangler login locally.\n");
-  output.write("If you enter one, it will be written to .env, which is ignored by Git.\n");
-  const apiToken = await prompter.ask(
-    "Cloudflare API token",
-    DEFAULTS.apiToken
-  );
+  let accountId = "";
+  let apiToken = "";
+  if (wranglerAuthenticated) {
+    output.write("Using local Wrangler authentication. Cloudflare account ID and API token can stay blank.\n");
+    const shouldAddCloudflareValues = await prompter.confirm(
+      "Add Cloudflare account ID or API token to .env anyway?",
+      false
+    );
+    if (shouldAddCloudflareValues) {
+      accountId = await prompter.askHidden(
+        "Cloudflare account ID",
+        DEFAULTS.accountId
+      );
+
+      output.write("\nCloudflare API token is optional if you use wrangler login locally.\n");
+      output.write("If you enter one, it will be written to .env.\n");
+      apiToken = await prompter.askHidden(
+        "Cloudflare API token",
+        DEFAULTS.apiToken
+      );
+    }
+  } else {
+    accountId = await prompter.askHidden(
+      "Cloudflare account ID",
+      DEFAULTS.accountId
+    );
+
+    output.write("\nCloudflare API token is optional if you use wrangler login locally.\n");
+    output.write("If you enter one, it will be written to .env.\n");
+    apiToken = await prompter.askHidden(
+      "Cloudflare API token",
+      DEFAULTS.apiToken
+    );
+  }
 
   output.write("\nD1 database\n");
+  output.write("Example D1 database name: your-threads\n");
   const databaseName = await prompter.ask(
-    "D1 database name",
+    "D1 database name to create or use",
     DEFAULTS.databaseName
   );
-  const databaseId = await prompter.ask(
-    "D1 database ID",
-    DEFAULTS.databaseId
-  );
+
+  let databaseId = "";
+  if (wranglerInstalled && wranglerAuthenticated) {
+    const shouldCreateDatabase = await prompter.confirm(
+      `Create D1 database '${databaseName}' with Wrangler now?`,
+      true
+    );
+    if (shouldCreateDatabase) {
+      output.write(`Creating D1 database '${databaseName}' with Wrangler...\n`);
+      const createdDatabase = createD1Database(databaseName, options);
+      if (createdDatabase.ok && createdDatabase.databaseId) {
+        databaseId = createdDatabase.databaseId;
+        output.write(`Created D1 database '${databaseName}'.\n`);
+      } else {
+        output.write("Unable to create or parse the D1 database ID from Wrangler output.\n");
+        if (createdDatabase.output) {
+          output.write("Wrangler output:\n");
+          output.write(`${createdDatabase.output}\n`);
+        }
+      }
+    }
+  }
+
+  if (!databaseId) {
+    databaseId = await prompter.askHidden(
+      "D1 database ID, if using an existing database",
+      DEFAULTS.databaseId
+    );
+  }
 
   output.write("\nWorker deployment\n");
   const workerName = await prompter.ask("Worker name", DEFAULTS.workerName);
@@ -241,7 +387,8 @@ async function main(argv = process.argv.slice(2), options = {}) {
   }
 
   const envPath = path.resolve(process.cwd(), ".env");
-  const prompter = createPrompter();
+  const prompter = options.prompter || createPrompter();
+  const output = options.output || process.stdout;
 
   try {
     if (fs.existsSync(envPath)) {
@@ -251,17 +398,17 @@ async function main(argv = process.argv.slice(2), options = {}) {
       );
 
       if (!shouldOverwrite) {
-        process.stdout.write("Setup cancelled. Existing .env was left unchanged.\n");
+        output.write("Setup cancelled. Existing .env was left unchanged.\n");
         return;
       }
     }
 
-    const config = await collectConfig(prompter);
+    const config = await collectConfig(prompter, output, options);
     const content = buildEnvContent(config);
 
     fs.writeFileSync(envPath, content, { encoding: "utf8", mode: 0o600 });
 
-    process.stdout.write("\nCreated .env\n");
+    output.write("\nCreated .env\n");
 
     const wranglerPath = path.resolve(process.cwd(), "wrangler.toml");
     const shouldCreateWrangler = await prompter.confirm(
@@ -282,20 +429,19 @@ async function main(argv = process.argv.slice(2), options = {}) {
         fs.writeFileSync(wranglerPath, buildWranglerTomlContent(config), {
           encoding: "utf8",
         });
-        process.stdout.write("Created wrangler.toml\n");
+        output.write("Created wrangler.toml\n");
       } else {
-        process.stdout.write("Existing wrangler.toml was left unchanged.\n");
+        output.write("Existing wrangler.toml was left unchanged.\n");
       }
     }
 
-    process.stdout.write("\n");
-    process.stdout.write("Next steps:\n");
-    process.stdout.write(`  1. Confirm account_id and database_id in wrangler.toml\n`);
-    process.stdout.write(`  2. Initialize D1: wrangler d1 execute ${config.databaseName || DEFAULTS.databaseName} --remote --file=src/schema.sql\n`);
-    process.stdout.write("  3. Deploy: wrangler deploy\n");
-    process.stdout.write("  4. Point your site scripts at the deployed Worker endpoints\n\n");
+    output.write("\n");
+    output.write("Next steps:\n");
+    output.write(`  1. Initialize D1 schema: wrangler d1 execute ${config.databaseName || DEFAULTS.databaseName} --remote --file=src/schema.sql\n`);
+    output.write("  2. Deploy: wrangler deploy\n");
+    output.write("  3. Point your site scripts at the deployed Worker endpoints\n\n");
   } finally {
-    prompter.close();
+    if (!options.prompter) prompter.close();
   }
 }
 
@@ -310,8 +456,14 @@ module.exports = {
   DEFAULTS,
   buildEndpointUrl,
   buildEnvContent,
+  collectConfig,
+  createPrompter,
+  createD1Database,
+  isWranglerAuthenticated,
+  isWranglerInstalled,
   main,
   normalizeUrl,
+  parseD1DatabaseId,
   sanitizeOriginList,
   showHelp,
 };

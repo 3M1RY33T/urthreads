@@ -7,6 +7,7 @@
 const path = require("path");
 const readline = require("readline");
 const { writeEnvFile } = require("./admin-key");
+const { formatHelp } = require("./help-format");
 
 const ADMIN_SESSION_TTL_SECONDS_NAME = "ADMIN_SESSION_TTL_SECONDS";
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60;
@@ -122,7 +123,7 @@ async function selectSessionTtl(prompter, output = process.stdout) {
 }
 
 function showHelp(commandName = "node src/admin-session.js") {
-  process.stdout.write(`
+  process.stdout.write(formatHelp(`
 urthreads Admin Session Config
 
 USAGE:
@@ -135,13 +136,7 @@ DESCRIPTION:
   admin sessions last after the admin key is submitted to /admin/session.
   Values are limited to 15 minutes through 1 hour.
 
-EXAMPLES:
-  urthreads admin-session
-  urthreads admin-session --ttl 1h
-  urthreads admin-session --ttl 30m
-  urthreads admin-session --ttl 3600
-
-`);
+`));
 }
 
 async function main(argv = process.argv.slice(2), options = {}) {

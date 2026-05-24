@@ -129,6 +129,45 @@ button:disabled {
   gap: 20px;
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(46px, 4.8vw, 62px);
+  height: clamp(46px, 4.8vw, 62px);
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  flex: 0 0 auto;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.brand-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.brand-logo:hover:not(:disabled) {
+  border: 0;
+  background: transparent;
+}
+
+.brand-logo:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
 .brand h1 {
   margin: 0;
   font-size: 1.25rem;
@@ -1962,6 +2001,16 @@ button.post-title-copy-button:hover:not(:disabled) {
 
   .brand {
     min-width: 0;
+  }
+
+  .brand-logo {
+    width: 42px;
+    height: 42px;
+  }
+
+  .brand-logo img {
+    width: 100%;
+    height: 100%;
   }
 
   .brand h1 {

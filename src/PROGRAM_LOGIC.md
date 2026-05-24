@@ -1,7 +1,7 @@
+# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Program Logic
+
 | [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | *> Program Logic <* | [Tests](../test/TESTS.md) |
 | --- | --- | --- | --- | --- |
-
-# Program Logic
 
 This directory contains the Worker runtime, local setup helpers, database schema, and CLI entrypoint for `urthreads`.
 
@@ -150,6 +150,7 @@ The Worker also contains compatibility helpers for older databases, such as ensu
 - `wrangler-config.js`: guided `wrangler.toml` creation and updates.
 - `admin-key.js`: admin key generation and rotation.
 - `admin-session.js`: session TTL configuration.
+- `backout.js`: local cleanup, cache reset, and guarded Worker deletion commands.
 - `cli.js`: moderation, like, stats, and health commands that generate or execute Wrangler D1 SQL.
 
 Useful commands:
@@ -162,6 +163,10 @@ urthreads env add-origin http://localhost:8000
 urthreads env open
 urthreads admin-key
 urthreads admin-session --ttl 1h
+urthreads clean --dry-run
+urthreads clean
+urthreads clean-all
+urthreads delete-worker --name urthreads-worker
 urthreads pending
 urthreads approve 5 --execute
 urthreads stats

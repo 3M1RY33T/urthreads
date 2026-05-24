@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { writeEnvFile } = require("./admin-key");
+const { formatHelp } = require("./help-format");
 
 const DEFAULT_ENV_PATH = ".env";
 const DEFAULT_ORIGIN_KEY = "ALLOWED_ORIGINS";
@@ -180,7 +181,7 @@ function openEnvFile(envPath, options = {}) {
 }
 
 function showHelp(commandName = "node src/env-config.js") {
-  process.stdout.write(`
+  process.stdout.write(formatHelp(`
 urthreads Environment Config
 
 USAGE:
@@ -194,14 +195,7 @@ DESCRIPTION:
   Updates local .env values without exposing secrets in terminal output.
   add-origin removes wildcard CORS values and appends exact origins safely.
 
-EXAMPLES:
-  urthreads env add-origin http://[::1]:8000
-  urthreads env add-origin https://mysite.com https://www.mysite.com --target prod
-  urthreads env set WORKER_URL https://my-worker.example.workers.dev
-  urthreads env get ALLOWED_ORIGINS
-  urthreads env open
-
-`);
+`));
 }
 
 async function main(argv = process.argv.slice(2), options = {}) {

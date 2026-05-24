@@ -1,9 +1,9 @@
+# <img src="https://raw.githubusercontent.com/3M1RY33T/urthreads/main/assets/img/urthreads.png" alt="" width="28" height="28" align="middle"> Urthreads
+
 | *> Overview <* | [Dashboard](./web/DASHBOARD.md) | [Configuration And Environment](./config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](./src/PROGRAM_LOGIC.md) | [Tests](./test/TESTS.md) |
 | --- | --- | --- | --- | --- |
 
-# Urthreads
-
-`urthreads` is self-hosted software for adding engagement features to static websites. It is not a hosted service: you deploy the Worker to your own Cloudflare account, connect it to your own D1 database, and manage the dashboard with your own admin key.
+`urthreads` is self-hosted software for adding engagement features to static websites. Simply deploy the Worker to your own Cloudflare account, connect it to your own D1 database, and manage the dashboard with your own admin key.
 
 It adds page likes, threaded comments, moderation, dashboard analytics, and admin tooling for blogs, portfolios, documentation sites, and other static pages that need interaction without running a traditional server.
 
@@ -19,20 +19,20 @@ It adds page likes, threaded comments, moderation, dashboard analytics, and admi
 
 ## Quick Start
 
-The recommended path is to use the published package CLI. It keeps setup boring in the best way: it asks for the Cloudflare, D1, Worker, CORS, and dashboard values it needs, then writes a local `.env` and can create `wrangler.toml` for you.
+The recommended path is to use the published package CLI. It keeps setup boring in the best way: it uses Wrangler authentication when available, can create your D1 database for you, then writes a local `.env` and can create `wrangler.toml`.
 
 ```bash
 npm install -g urthreads
 wrangler login
-wrangler d1 create your-threads
 urthreads setup-env
 ```
 
-The guided setup asks for:
+The guided setup can:
 
-- Cloudflare account ID
-- optional Cloudflare API token for local tooling
-- D1 database name and ID
+- use your local Wrangler login
+- create a D1 database after asking what name you want, such as `your-threads`
+- parse and write the D1 database ID
+- optionally store Cloudflare account/API values for advanced workflows
 - Worker name and Worker URL
 - allowed browser origins
 - maximum comments returned per post
@@ -133,6 +133,33 @@ Open [web/index.html](./web/index.html), enter the Worker URL and admin key, and
 
 Important: dashboard refresh persistence requires the dashboard's exact browser origin in `ALLOWED_ORIGINS`. Do not use `*` for dashboard sessions.
 
+### Host The Dashboard
+
+For production, host the static dashboard under your own site, commonly at:
+
+```text
+https://www.myblog.com/urthreads/
+```
+
+The dashboard UI and Worker API stay separate:
+
+```text
+Dashboard UI: https://www.myblog.com/urthreads/
+Worker API:   https://urthreads-worker.your-subdomain.workers.dev
+```
+
+Copy the contents of [web](./web) to the `/urthreads/` directory in your static site output. The dashboard files should be served so `index.html`, `dashboard.js`, and `styles.css` are available under that path.
+
+Add the dashboard's origin to the Worker CORS allowlist. Origins do not include paths, so for `https://www.myblog.com/urthreads/` add:
+
+```bash
+urthreads env add-origin https://www.myblog.com
+urthreads wrangler set ALLOWED_ORIGINS https://www.myblog.com
+wrangler deploy
+```
+
+Then open `https://www.myblog.com/urthreads/` and enter your Worker API URL.
+
 ## Useful CLI Commands
 
 ```bash
@@ -143,6 +170,10 @@ urthreads env add-origin https://example.com # Add an allowed browser origin
 urthreads env open                        # Open .env in a viewer
 urthreads admin-key                       # Generate or rotate admin key
 urthreads admin-session --ttl 1h          # Set dashboard session lifetime
+urthreads clean --dry-run                 # Preview cleanup while keeping config/database
+urthreads clean                           # Remove caches and working files
+urthreads clean-all                       # Full local reset; can also delete Worker
+urthreads delete-worker --name worker     # Delete Worker, then offer full local cleanup
 urthreads pending                         # List pending comments
 urthreads approve 5 --execute             # Approve comment 5
 urthreads reject 5 --execute              # Reject comment 5
@@ -152,6 +183,22 @@ urthreads health                          # Run D1 health check
 ```
 
 Most D1 management commands print the Wrangler command by default. Add `--execute` or `--run` to run it immediately.
+
+## Back-Out Commands
+
+Use these when you want to test setup from a clean local state before release.
+
+```bash
+urthreads clean --dry-run
+urthreads clean
+urthreads clean-all
+urthreads clean-all --delete-worker
+urthreads delete-worker --name urthreads-worker
+```
+
+Prefer `clean` for normal retesting: it removes caches and local working outputs while keeping your database and configuration files. Use `clean-all` when you want to start setup over: it removes caches, working files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first. `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends removing local environment, cache, and working files that refer to the deleted Worker. Use `--keep-local` only when you intentionally want to retain local setup files.
+
+The granular `clean-cache`, `clean-files`, and `clean-env` commands remain available for targeted cleanup, but the unified commands are the recommended release-test workflow.
 
 ## Development
 
@@ -174,6 +221,17 @@ python3 -m http.server 8000
 ```
 
 Then open `http://localhost:8000/web/index.html` or `http://[::1]:8000/web/index.html`.
+
+## Contributing
+
+Contributions are welcome. Before opening a pull request, read [CONTRIBUTING.md](./CONTRIBUTING.md), keep changes focused, and run:
+
+```bash
+npm test
+npm run check
+```
+
+Please do not report security vulnerabilities in public issues. Use the private reporting guidance in [SECURITY.md](./SECURITY.md).
 
 ## Upcoming Changes
 

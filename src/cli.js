@@ -12,6 +12,7 @@
  */
 
 const { execSync } = require("child_process");
+const { formatHelp } = require("./help-format");
 
 // Color codes for terminal output
 const colors = {
@@ -329,7 +330,7 @@ function getSqlHealthCheck() {
  * Display help message
  */
 function showHelp(commandName = "node src/cli.js") {
-  log(`
+  console.log(formatHelp(`
 urthreads CLI - Comment Management Tool
 
 USAGE:
@@ -370,25 +371,6 @@ COMMANDS:
   --execute, --run     Execute the generated Wrangler command
   help                 Show this help message
 
-EXAMPLES:
-  # List pending comments
-  ${commandName} pending
-
-  # Approve comment with ID 5
-  ${commandName} approve 5
-
-  # List approved comments for a post
-  ${commandName} list-approved /blog/my-post
-
-  # Show database statistics
-  ${commandName} stats
-
-  # Create a comment
-  ${commandName} create-comment /blog/post https://site.test/post "Post title" Ada "Great post"
-
-  # Set likes for a path and execute it
-  ${commandName} set-like /blog/post 10 --execute
-
 PREREQUISITES:
   - Cloudflare CLI (wrangler) must be installed and configured
   - Your D1 database must be set up with the schema.sql
@@ -407,7 +389,7 @@ DATABASE COMMANDS (Advanced):
 
   # Health check
   ${commandName} health
-  `, "cyan");
+  `));
 }
 
 /**

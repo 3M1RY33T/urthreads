@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { spawnSync } = require("child_process");
+const { formatHelp } = require("./help-format");
 
 const DEFAULT_WRANGLER_PATH = "wrangler.toml";
 const DEFAULTS = {
@@ -156,6 +157,7 @@ async function collectWranglerConfig(prompter, output = process.stdout, defaults
   const workersDev = await prompter.ask("Use workers.dev route? true/false", defaults.workersDev || DEFAULTS.workersDev);
 
   output.write("\nD1 database\n");
+  output.write("Example D1 database name: your-threads\n");
   const databaseName = await prompter.ask("D1 database name", defaults.databaseName || DEFAULTS.databaseName);
   const databaseId = await prompter.ask("D1 database ID", defaults.databaseId || DEFAULTS.databaseId);
 
@@ -172,12 +174,14 @@ async function collectWranglerConfig(prompter, output = process.stdout, defaults
 
   output.write("\nProduction environment\n");
   const productionWorkerName = await prompter.ask("Production Worker name", defaults.productionWorkerName || `${workerName}-prod`);
+  output.write(`Example production D1 database name: ${databaseName}-prod\n`);
   const productionDatabaseName = await prompter.ask("Production D1 database name", defaults.productionDatabaseName || `${databaseName}-prod`);
   const productionDatabaseId = await prompter.ask("Production D1 database ID", defaults.productionDatabaseId || DEFAULTS.databaseId);
   const allowedOriginsProd = await prompter.ask("Production allowed origins", defaults.allowedOriginsProd || DEFAULTS.allowedOriginsProd);
 
   output.write("\nStaging environment\n");
   const stagingWorkerName = await prompter.ask("Staging Worker name", defaults.stagingWorkerName || `${workerName}-staging`);
+  output.write(`Example staging D1 database name: ${databaseName}-staging\n`);
   const stagingDatabaseName = await prompter.ask("Staging D1 database name", defaults.stagingDatabaseName || `${databaseName}-staging`);
   const stagingDatabaseId = await prompter.ask("Staging D1 database ID", defaults.stagingDatabaseId || DEFAULTS.databaseId);
   const allowedOriginsStaging = await prompter.ask("Staging allowed origins", defaults.allowedOriginsStaging || DEFAULTS.allowedOriginsStaging);
@@ -448,7 +452,7 @@ function openWranglerToml(filePath, options = {}) {
 }
 
 function showHelp(commandName = "node src/wrangler-config.js") {
-  process.stdout.write(`
+  process.stdout.write(formatHelp(`
 urthreads Wrangler Config
 
 USAGE:
@@ -464,16 +468,7 @@ KEYS:
   ALLOWED_ORIGINS, WORKER_NAME, D1_DATABASE_NAME
   ADMIN_API_KEY_EXPIRES_AT, ADMIN_SESSION_TTL_SECONDS, MAX_COMMENTS_PER_POST
 
-EXAMPLES:
-  urthreads wrangler-init
-  urthreads wrangler set account_id your-account-id
-  urthreads wrangler set database_id your-d1-id
-  urthreads wrangler set ALLOWED_ORIGINS https://example.com
-  urthreads wrangler set database_id prod-d1-id --env production
-  urthreads wrangler get ALLOWED_ORIGINS
-  urthreads wrangler open
-
-`);
+`));
 }
 
 async function main(argv = process.argv.slice(2), options = {}) {

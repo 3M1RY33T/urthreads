@@ -1,7 +1,7 @@
+# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Configuration And Environment
+
 | [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | *> Configuration And Environment <* | [Program Logic](../src/PROGRAM_LOGIC.md) | [Tests](../test/TESTS.md) |
 | --- | --- | --- | --- | --- |
-
-# Configuration And Environment
 
 This directory contains environment templates for local setup and Wrangler deployment.
 
@@ -52,9 +52,10 @@ npm run setup:env
 
 The setup flow asks for:
 
-- Cloudflare account ID
-- optional Cloudflare API token for local tooling
-- D1 database name and ID
+- Wrangler authentication, if it is available locally
+- D1 database name, with an option to create the database automatically. Example: `your-threads`.
+- D1 database ID only when automatic creation is skipped or unavailable
+- optional Cloudflare account ID/API token for advanced local tooling
 - Worker name and Worker URL
 - allowed browser origins
 - maximum comments returned per post
@@ -91,6 +92,20 @@ ALLOWED_ORIGINS_PROD=https://example.com,https://www.example.com
 ```
 
 Use exact origins. Do not use `*` for dashboard deployments. Browser cookie sessions need credentialed CORS, and credentialed CORS requires a specific `Access-Control-Allow-Origin` value.
+
+If your dashboard is hosted at:
+
+```text
+https://www.myblog.com/urthreads/
+```
+
+the origin to add is:
+
+```text
+https://www.myblog.com
+```
+
+Do not include the `/urthreads/` path in `ALLOWED_ORIGINS`.
 
 Add origins with:
 
@@ -187,6 +202,27 @@ Open `.env` in a specific viewer:
 urthreads env open --viewer code
 ```
 
+## Back-Out And Reset Commands
+
+Use the back-out commands to test the setup flow from a clean local state.
+
+```bash
+urthreads clean --dry-run
+urthreads clean
+urthreads clean-all
+urthreads clean-all --delete-worker
+urthreads delete-worker --name urthreads-worker
+```
+
+- `clean` is the recommended everyday reset. It removes caches and local working files while keeping your D1 database and configuration files.
+- `clean-all` is the recommended full setup reset. It removes caches, working files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first.
+- `clean-cache` removes local cache directories such as `.wrangler`, `.mf`, and `node_modules/.cache`.
+- `clean-files` removes generated local environment files such as `.env`, `wrangler.toml`, and `.dev.vars`. Add `--cache` to include caches too.
+- `clean-env` removes `.env` and `wrangler.toml`, and asks whether to delete the deployed Worker first.
+- `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends cleaning local environment, cache, and working files that refer to the deleted Worker. Pass `--name <worker>` if the Worker name cannot be inferred from `wrangler.toml` or `.env`, or `--keep-local` if you intentionally want to leave local setup files in place.
+
+Prefer `clean` and `clean-all` unless you need one narrow operation. Add `--dry-run` to preview local cleanup or Worker deletion commands without removing anything. Add `--yes` only for automation where you intentionally want to skip interactive prompts.
+
 ## Wrangler Configuration
 
 `wrangler.toml.example` defines:
@@ -262,11 +298,17 @@ wrangler deploy --env production
 
 ## D1 Setup
 
-Create a database:
+`urthreads setup-env` can create the default D1 database for you through Wrangler. To create one manually instead:
 
 ```bash
 wrangler d1 create your-threads
 ```
+
+Example names:
+
+- Default/local D1 database: `your-threads`
+- Production D1 database: `your-threads-prod`
+- Staging D1 database: `your-threads-staging`
 
 Initialize the schema:
 
@@ -284,7 +326,7 @@ wrangler d1 execute your-threads-prod --remote --file=src/schema.sql --env produ
 ## Deployment Checklist
 
 - Set exact `ALLOWED_ORIGINS`.
-- Add the dashboard origin if you use `web/index.html`.
+- Add the dashboard origin if you host `web/index.html`, such as `https://www.myblog.com` for `https://www.myblog.com/urthreads/`.
 - Set `ADMIN_API_KEY` as a Worker secret.
 - Set D1 bindings correctly in `wrangler.toml`.
 - Initialize `src/schema.sql`.

@@ -12,6 +12,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { formatHelp } = require("./help-format");
 
 const ADMIN_KEY_NAME = "ADMIN_API_KEY";
 const ADMIN_KEY_EXPIRES_AT_NAME = "ADMIN_API_KEY_EXPIRES_AT";
@@ -249,7 +250,7 @@ function parseArgs(argv = []) {
 }
 
 function showHelp(commandName = "node src/admin-key.js") {
-  process.stdout.write(`
+  process.stdout.write(formatHelp(`
 urthreads Admin Key Generator
 
 USAGE:
@@ -263,12 +264,7 @@ DESCRIPTION:
   keys that never expire. The generated key is copied to your clipboard when
   clipboard tooling is available; it is not printed to terminal output.
 
-EXAMPLES:
-  urthreads admin-key
-  urthreads admin-key --expires 30d
-  urthreads admin-key --expires never
-
-`);
+`));
 }
 
 async function main(argv = process.argv.slice(2), options = {}) {
