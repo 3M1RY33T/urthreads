@@ -13,6 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { formatHelp } = require("./help-format");
+const { updateWranglerToml } = require("./wrangler-config");
 
 const ADMIN_KEY_NAME = "ADMIN_API_KEY";
 const ADMIN_KEY_EXPIRES_AT_NAME = "ADMIN_API_KEY_EXPIRES_AT";
@@ -193,8 +194,16 @@ function createPrompter(input = process.stdin, output = process.stdout) {
     });
   }
 
+  async function confirm(question, defaultValue = true) {
+    const label = defaultValue ? "Y/n" : "y/N";
+    const answer = String(await ask(`${question} [${label}]`)).toLowerCase();
+    if (!answer) return defaultValue;
+    return answer === "y" || answer === "yes";
+  }
+
   return {
     ask,
+    confirm,
     close: () => rl.close(),
   };
 }
@@ -226,6 +235,7 @@ function parseArgs(argv = []) {
     envPath: ".env",
     expires: "",
     help: false,
+    wranglerPath: "wrangler.toml",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -243,9 +253,182 @@ function parseArgs(argv = []) {
       index += 1;
     } else if (arg.startsWith("--expires=")) {
       result.expires = arg.slice("--expires=".length);
+    } else if (arg === "--toml" || arg === "--wrangler") {
+      result.wranglerPath = argv[index + 1] || result.wranglerPath;
+      index += 1;
+    } else if (arg.startsWith("--toml=")) {
+      result.wranglerPath = arg.slice("--toml=".length);
+    } else if (arg.startsWith("--wrangler=")) {
+      result.wranglerPath = arg.slice("--wrangler=".length);
     }
   }
 
+  return result;
+}
+
+function commandSucceeded(result) {
+  return !result?.error && (typeof result?.status !== "number" || result.status === 0);
+}
+
+function getCommandOutput(result) {
+  return `${result?.stdout || ""}\n${result?.stderr || ""}`.trim();
+}
+
+function redactAdminKeyCommandOutput(value) {
+  return String(value || "")
+    .replace(/(ADMIN_API_KEY=)[^\s]+/gi, "$1<redacted>")
+    .replace(/\/Users\/[^\s"']+/g, "<redacted-path>");
+}
+
+function summarizeWranglerFailure(output) {
+  const text = String(output || "").toLowerCase();
+  if (text.includes("not authenticated") || text.includes("cloudflare_api_token")) {
+    return "Wrangler is not authenticated for this command.";
+  }
+  if (text.includes("permission") || text.includes("forbidden") || text.includes("unauthorized")) {
+    return "Wrangler does not have permission to complete this command.";
+  }
+  if (text.includes("does not exist") || text.includes("not found")) {
+    return "Wrangler could not find the target Worker or account resource.";
+  }
+  return "Wrangler could not complete the command.";
+}
+
+function storeAdminKeySecret(adminKey, options = {}) {
+  const runner = options.runner || spawnSync;
+  const result = runner("wrangler", ["secret", "put", ADMIN_KEY_NAME], {
+    input: `${adminKey}\n`,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  return {
+    ok: commandSucceeded(result),
+    output: getCommandOutput(result),
+  };
+}
+
+function updateAdminKeyExpirationInWranglerToml(wranglerPath, expiresAt) {
+  if (!fs.existsSync(wranglerPath)) {
+    return {
+      ok: false,
+      missing: true,
+    };
+  }
+
+  const content = fs.readFileSync(wranglerPath, "utf8");
+  const nextContent = updateWranglerToml(content, ADMIN_KEY_EXPIRES_AT_NAME, expiresAt);
+  fs.writeFileSync(wranglerPath, nextContent, "utf8");
+
+  return {
+    ok: true,
+    missing: false,
+  };
+}
+
+function deployWorker(options = {}) {
+  const runner = options.runner || spawnSync;
+  const result = runner("wrangler", ["deploy"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+
+  return {
+    ok: commandSucceeded(result),
+    output: getCommandOutput(result),
+  };
+}
+
+function displayLocalPath(filePath, fallbackName) {
+  const relative = path.relative(process.cwd(), filePath);
+  if (!relative) return fallbackName;
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return path.basename(filePath) || fallbackName;
+  }
+  return relative;
+}
+
+async function offerAdminKeyWorkerUpdates(adminKey, expiration, args, prompter, output = process.stdout, options = {}) {
+  if (options.useWrangler === false || !prompter?.confirm) {
+    return {
+      deployed: false,
+      expirationUpdated: false,
+      secretStored: false,
+    };
+  }
+
+  const result = {
+    deployed: false,
+    expirationUpdated: false,
+    secretStored: false,
+  };
+
+  output.write("Worker update\n");
+  const shouldStoreSecret = await prompter.confirm(
+    `Store ${ADMIN_KEY_NAME} as a Worker secret now?`,
+    false
+  );
+  if (shouldStoreSecret) {
+    output.write(`Storing ${ADMIN_KEY_NAME} as a Worker secret...\n`);
+    const secretResult = storeAdminKeySecret(adminKey, options);
+    if (secretResult.ok) {
+      result.secretStored = true;
+      output.write(`Stored ${ADMIN_KEY_NAME} as a Worker secret.\n`);
+    } else {
+      output.write(`Could not store ${ADMIN_KEY_NAME} as a Worker secret.\n`);
+      output.write(`${summarizeWranglerFailure(secretResult.output)}\n`);
+      if (secretResult.output) {
+        output.write("Sanitized Wrangler detail:\n");
+        output.write(`${redactAdminKeyCommandOutput(secretResult.output)}\n`);
+      }
+    }
+  }
+
+  if (!expiration.expiresAt) {
+    output.write("\n");
+    return result;
+  }
+
+  const wranglerPath = path.resolve(process.cwd(), args.wranglerPath);
+  const wranglerDisplayPath = displayLocalPath(wranglerPath, "wrangler.toml");
+  const shouldUpdateExpiration = await prompter.confirm(
+    `Update ${wranglerDisplayPath} with ${ADMIN_KEY_EXPIRES_AT_NAME}?`,
+    true
+  );
+
+  if (shouldUpdateExpiration) {
+    const updateResult = updateAdminKeyExpirationInWranglerToml(wranglerPath, expiration.expiresAt);
+    if (updateResult.ok) {
+      result.expirationUpdated = true;
+      output.write(`Updated ${wranglerDisplayPath}.\n`);
+    } else {
+      output.write(`${wranglerDisplayPath} was not found, so ${ADMIN_KEY_EXPIRES_AT_NAME} was not updated there.\n`);
+    }
+  }
+
+  if (result.expirationUpdated) {
+    const shouldDeploy = await prompter.confirm(
+      "Deploy Worker now so the expiration takes effect?",
+      false
+    );
+    if (shouldDeploy) {
+      output.write("Deploying Worker...\n");
+      const deployResult = deployWorker(options);
+      if (deployResult.ok) {
+        result.deployed = true;
+        output.write("Deployed Worker.\n");
+      } else {
+        output.write("Worker deployment did not complete.\n");
+        output.write(`${summarizeWranglerFailure(deployResult.output)}\n`);
+        if (deployResult.output) {
+          output.write("Sanitized Wrangler detail:\n");
+          output.write(`${redactAdminKeyCommandOutput(deployResult.output)}\n`);
+        }
+      }
+    }
+  }
+
+  output.write("\n");
   return result;
 }
 
@@ -257,12 +440,13 @@ USAGE:
   ${commandName}
   ${commandName} --expires <never|30d|ISO-date>
   ${commandName} --env ./path/to/.env --expires 90d
+  ${commandName} --toml ./wrangler.toml --expires 7d
 
 DESCRIPTION:
-  Generates a secure admin API key, writes it to ADMIN_API_KEY in .env, and
-  writes ADMIN_API_KEY_EXPIRES_AT with an ISO timestamp or an empty value for
-  keys that never expire. The generated key is copied to your clipboard when
-  clipboard tooling is available; it is not printed to terminal output.
+  Generates a secure admin API key, writes it to ADMIN_API_KEY in .env, copies
+  it to your clipboard when available, and can optionally store it as a Worker
+  secret. Expiring keys can also update ADMIN_API_KEY_EXPIRES_AT in wrangler.toml
+  and prompt for deployment.
 
 `));
 }
@@ -277,7 +461,10 @@ async function main(argv = process.argv.slice(2), options = {}) {
     return;
   }
 
-  const prompter = options.prompter || createPrompter();
+  const shouldClosePrompter = !Object.prototype.hasOwnProperty.call(options, "prompter");
+  const prompter = shouldClosePrompter
+    ? createPrompter()
+    : options.prompter;
 
   try {
     const expiration = args.expires
@@ -300,11 +487,30 @@ async function main(argv = process.argv.slice(2), options = {}) {
       output.write(`Generated ${ADMIN_KEY_NAME} and wrote it to .env.\n`);
       output.write("Clipboard copy was unavailable in this shell, so the key was not printed.\n\n");
     }
+
+    const workerUpdate = await offerAdminKeyWorkerUpdates(
+      adminKey,
+      expiration,
+      args,
+      prompter,
+      output,
+      options
+    );
+
     output.write("Next steps:\n");
-    output.write("  1. Store ADMIN_API_KEY as a Worker secret: wrangler secret put ADMIN_API_KEY\n");
-    output.write("  2. Deploy/update ADMIN_API_KEY_EXPIRES_AT with your Worker environment if it expires.\n\n");
+    if (!workerUpdate.secretStored) {
+      output.write(`  1. Store ${ADMIN_KEY_NAME} as a Worker secret: wrangler secret put ${ADMIN_KEY_NAME}\n`);
+    }
+    if (expiration.expiresAt && (!workerUpdate.expirationUpdated || !workerUpdate.deployed)) {
+      output.write(`  ${workerUpdate.secretStored ? "1" : "2"}. Update the Worker expiration: urthreads wrangler set ${ADMIN_KEY_EXPIRES_AT_NAME} "${expiration.expiresAt}"\n`);
+      output.write(`  ${workerUpdate.secretStored ? "2" : "3"}. Deploy the Worker: wrangler deploy\n`);
+    }
+    if (workerUpdate.secretStored && (!expiration.expiresAt || workerUpdate.deployed)) {
+      output.write("  1. Open the dashboard and sign in with the copied admin key.\n");
+    }
+    output.write("\n");
   } finally {
-    if (!options.prompter) {
+    if (shouldClosePrompter) {
       prompter.close();
     }
   }
@@ -321,11 +527,15 @@ module.exports = {
   ADMIN_KEY_EXPIRES_AT_NAME,
   ADMIN_KEY_NAME,
   copyToClipboard,
+  deployWorker,
   generateAdminApiKey,
   main,
+  offerAdminKeyWorkerUpdates,
   parseArgs,
   parseExpirationValue,
+  storeAdminKeySecret,
   showHelp,
   upsertEnvVars,
+  updateAdminKeyExpirationInWranglerToml,
   writeEnvFile,
 };

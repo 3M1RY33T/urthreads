@@ -18,6 +18,9 @@
       <h1>Comment Lab</h1>
       <p>This page intentionally hosts two comment widgets on one HTML document. They use different `data-page-id` values to test same-page isolation.</p>
       <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+      <div class="session-tools">
+        <button type="button" data-reset-example-session>Reset browser session</button>
+      </div>
     </header>
 
     <section class="grid" aria-label="Comment lab likes">
@@ -109,6 +112,8 @@
     </section>
   </main>
 
+  <script src="../urthreads-worker-config.js"></script>
+  <script src="../../client/example-session.js"></script>
   <script src="config.js"></script>
   <script src="../../client/likes.js"></script>
   <script src="../../client/comments.js"></script>

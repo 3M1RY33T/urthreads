@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { spawnSync } = require("child_process");
+const { writeExampleWorkerConfig } = require("./example-config");
 const { formatHelp } = require("./help-format");
 
 const DEFAULT_WRANGLER_PATH = "wrangler.toml";
@@ -18,12 +19,13 @@ const DEFAULTS = {
   accountId: "",
   workersDev: "true",
   databaseName: "your-threads",
-  databaseId: "00000000-0000-0000-0000-000000000000",
-  allowedOrigins: "https://example.com",
-  allowedOriginsStaging: "https://staging.example.com,http://localhost:3000",
+  databaseId: "",
+  allowedOrigins: "https://example.com,http://localhost:8000,http://[::1]:8000",
+  allowedOriginsStaging: "https://staging.example.com,http://localhost:3000,http://localhost:8000,http://[::1]:8000",
   allowedOriginsProd: "https://example.com,https://www.example.com",
   adminSessionTtlSeconds: "3600",
   maxCommentsPerPost: "100",
+  workerUrl: "",
 };
 
 const TOP_LEVEL_KEYS = new Set(["name", "main", "compatibility_date", "account_id", "workers_dev"]);
@@ -51,15 +53,16 @@ function buildWranglerTomlContent(config = {}) {
   const databaseId = config.databaseId || DEFAULTS.databaseId;
   const productionWorkerName = config.productionWorkerName || `${workerName}-prod`;
   const stagingWorkerName = config.stagingWorkerName || `${workerName}-staging`;
-  const productionDatabaseName = config.productionDatabaseName || `${databaseName}-prod`;
-  const stagingDatabaseName = config.stagingDatabaseName || `${databaseName}-staging`;
-  const productionDatabaseId = config.productionDatabaseId || DEFAULTS.databaseId;
-  const stagingDatabaseId = config.stagingDatabaseId || DEFAULTS.databaseId;
+  const productionDatabaseName = config.productionDatabaseName || databaseName;
+  const stagingDatabaseName = config.stagingDatabaseName || databaseName;
+  const productionDatabaseId = config.productionDatabaseId || databaseId;
+  const stagingDatabaseId = config.stagingDatabaseId || databaseId;
   const allowedOrigins = config.allowedOrigins || DEFAULTS.allowedOrigins;
   const allowedOriginsProd = config.allowedOriginsProd || DEFAULTS.allowedOriginsProd;
   const allowedOriginsStaging = config.allowedOriginsStaging || DEFAULTS.allowedOriginsStaging;
   const adminSessionTtlSeconds = config.adminSessionTtlSeconds || DEFAULTS.adminSessionTtlSeconds;
   const maxCommentsPerPost = config.maxCommentsPerPost || DEFAULTS.maxCommentsPerPost;
+  const workerUrl = config.workerUrl || DEFAULTS.workerUrl;
 
   return [
     `name = ${tomlString(workerName)}`,
@@ -92,6 +95,7 @@ function buildWranglerTomlContent(config = {}) {
     "[vars]",
     `ALLOWED_ORIGINS = ${tomlString(allowedOrigins)}`,
     `WORKER_NAME = ${tomlString(workerName)}`,
+    `WORKER_URL = ${tomlString(workerUrl)}`,
     `D1_DATABASE_NAME = ${tomlString(databaseName)}`,
     `ADMIN_API_KEY_EXPIRES_AT = ${tomlString(config.adminApiKeyExpiresAt || "")}`,
     `ADMIN_SESSION_TTL_SECONDS = ${tomlString(adminSessionTtlSeconds)}`,
@@ -100,6 +104,7 @@ function buildWranglerTomlContent(config = {}) {
     "[env.production.vars]",
     `ALLOWED_ORIGINS = ${tomlString(allowedOriginsProd)}`,
     `WORKER_NAME = ${tomlString(productionWorkerName)}`,
+    `WORKER_URL = ${tomlString(config.productionWorkerUrl || workerUrl)}`,
     `D1_DATABASE_NAME = ${tomlString(productionDatabaseName)}`,
     `ADMIN_API_KEY_EXPIRES_AT = ${tomlString(config.adminApiKeyExpiresAt || "")}`,
     `ADMIN_SESSION_TTL_SECONDS = ${tomlString(adminSessionTtlSeconds)}`,
@@ -108,6 +113,7 @@ function buildWranglerTomlContent(config = {}) {
     "[env.staging.vars]",
     `ALLOWED_ORIGINS = ${tomlString(allowedOriginsStaging)}`,
     `WORKER_NAME = ${tomlString(stagingWorkerName)}`,
+    `WORKER_URL = ${tomlString(config.stagingWorkerUrl || workerUrl)}`,
     `D1_DATABASE_NAME = ${tomlString(stagingDatabaseName)}`,
     `ADMIN_API_KEY_EXPIRES_AT = ${tomlString(config.adminApiKeyExpiresAt || "")}`,
     `ADMIN_SESSION_TTL_SECONDS = ${tomlString(adminSessionTtlSeconds)}`,
@@ -174,16 +180,18 @@ async function collectWranglerConfig(prompter, output = process.stdout, defaults
 
   output.write("\nProduction environment\n");
   const productionWorkerName = await prompter.ask("Production Worker name", defaults.productionWorkerName || `${workerName}-prod`);
-  output.write(`Example production D1 database name: ${databaseName}-prod\n`);
-  const productionDatabaseName = await prompter.ask("Production D1 database name", defaults.productionDatabaseName || `${databaseName}-prod`);
-  const productionDatabaseId = await prompter.ask("Production D1 database ID", defaults.productionDatabaseId || DEFAULTS.databaseId);
+  output.write("Press Enter to reuse the default D1 database, or enter a separate production database.\n");
+  output.write(`Default production D1 database name: ${databaseName}\n`);
+  const productionDatabaseName = await prompter.ask("Production D1 database name", defaults.productionDatabaseName || databaseName);
+  const productionDatabaseId = await prompter.ask("Production D1 database ID", defaults.productionDatabaseId || databaseId);
   const allowedOriginsProd = await prompter.ask("Production allowed origins", defaults.allowedOriginsProd || DEFAULTS.allowedOriginsProd);
 
   output.write("\nStaging environment\n");
   const stagingWorkerName = await prompter.ask("Staging Worker name", defaults.stagingWorkerName || `${workerName}-staging`);
-  output.write(`Example staging D1 database name: ${databaseName}-staging\n`);
-  const stagingDatabaseName = await prompter.ask("Staging D1 database name", defaults.stagingDatabaseName || `${databaseName}-staging`);
-  const stagingDatabaseId = await prompter.ask("Staging D1 database ID", defaults.stagingDatabaseId || DEFAULTS.databaseId);
+  output.write("Press Enter to reuse the default D1 database, or enter a separate staging database.\n");
+  output.write(`Default staging D1 database name: ${databaseName}\n`);
+  const stagingDatabaseName = await prompter.ask("Staging D1 database name", defaults.stagingDatabaseName || databaseName);
+  const stagingDatabaseId = await prompter.ask("Staging D1 database ID", defaults.stagingDatabaseId || databaseId);
   const allowedOriginsStaging = await prompter.ask("Staging allowed origins", defaults.allowedOriginsStaging || DEFAULTS.allowedOriginsStaging);
 
   return {
@@ -465,7 +473,7 @@ USAGE:
 KEYS:
   name, main, compatibility_date, account_id, workers_dev
   database_name, database_id
-  ALLOWED_ORIGINS, WORKER_NAME, D1_DATABASE_NAME
+  ALLOWED_ORIGINS, WORKER_NAME, WORKER_URL, D1_DATABASE_NAME
   ADMIN_API_KEY_EXPIRES_AT, ADMIN_SESSION_TTL_SECONDS, MAX_COMMENTS_PER_POST
 
 `));
@@ -519,6 +527,12 @@ async function main(argv = process.argv.slice(2), options = {}) {
     writeWranglerTomlFile(filePath, nextContent);
     output.write(`Updated ${path.relative(process.cwd(), filePath) || "wrangler.toml"}\n`);
     output.write(`${normalizeEnvName(args.envName)}.${normalizeWranglerKey(args.key)}=${args.value}\n`);
+    if (normalizeWranglerKey(args.key) === "WORKER_URL") {
+      const exampleConfigPath = writeExampleWorkerConfig(args.value, {
+        generatedBy: "urthreads wrangler set WORKER_URL",
+      });
+      output.write(`Updated ${path.relative(process.cwd(), exampleConfigPath)}\n`);
+    }
     return;
   }
 

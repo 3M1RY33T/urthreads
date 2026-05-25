@@ -61,6 +61,21 @@
             text-decoration: underline;
         }
 
+        .example-reset-button {
+            display: inline-block;
+            margin-bottom: 20px;
+            border: 0;
+            background: transparent;
+            color: var(--primary);
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .example-reset-button:hover {
+            text-decoration: underline;
+        }
+
         .article {
             margin: 30px 0;
             line-height: 1.8;
@@ -350,6 +365,7 @@
         <div style="margin-bottom: 24px; display: flex; flex-wrap: wrap; gap: 12px;">
             <a class="example-link" href="likes-only.html">Like-Only Example</a>
             <a class="example-link" href="comments-only.html">Comment-Only Example</a>
+            <button class="example-reset-button" type="button" data-reset-example-session>Reset browser session</button>
         </div>
 
         <article class="article">
@@ -460,18 +476,8 @@
         </section>
     </div>
 
-    <!-- Configure your Worker origin once, then derive feature endpoints. -->
-    <script>
-        window.THREAD_CF_WORKER = 'https://cflc-test-worker.3m1ry33t.workers.dev';
-
-        window.LIKES_CONFIG = {
-            endpoint: `${window.THREAD_CF_WORKER}/likes`
-        };
-
-        window.COMMENTS_CONFIG = {
-            endpoint: `${window.THREAD_CF_WORKER}/comments`
-        };
-    </script>
+    <script src="../urthreads-worker-config.js"></script>
+    <script src="../../client/example-session.js"></script>
     <script src="../../client/likes.js"></script>
     <script src="../../client/comments.js"></script>
 </body>

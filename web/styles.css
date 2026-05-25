@@ -759,7 +759,7 @@ body.modal-open {
 }
 
 .icon-button[data-refresh]:hover {
-  color: #f38020;
+  color: var(--neutral-icon-hover);
 }
 
 .icon-button:focus-visible {
@@ -1335,7 +1335,7 @@ body[data-theme="dark"] .theme-switch .theme-icon-moon {
 .panel-toggle:hover:not(:disabled) {
   border-color: transparent;
   background: transparent;
-  color: #f38020;
+  color: var(--neutral-icon-hover);
 }
 
 .panel-toggle-icon {
@@ -1860,7 +1860,7 @@ button.post-title-copy-button:hover:not(:disabled) {
 }
 
 .worker-submenu summary:hover .worker-submenu-icon {
-  color: #f38020;
+  color: var(--neutral-icon-hover);
 }
 
 .worker-submenu[open] summary {

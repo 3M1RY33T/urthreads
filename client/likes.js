@@ -42,6 +42,10 @@
     return Number.isFinite(count) && count >= 0 ? count : 0;
   }
 
+  function getStorageKey(path) {
+    return `${config.storagePrefix}${config.endpoint}:${path}`;
+  }
+
   /**
    * Update like button appearance and state
    */
@@ -60,7 +64,7 @@
    */
   function getLiked(path) {
     try {
-      return window.localStorage.getItem(`${config.storagePrefix}${path}`) === 'true';
+      return window.localStorage.getItem(getStorageKey(path)) === 'true';
     } catch (error) {
       // Likes still work without localStorage
       return false;
@@ -72,7 +76,7 @@
    */
   function setLiked(path) {
     try {
-      window.localStorage.setItem(`${config.storagePrefix}${path}`, 'true');
+      window.localStorage.setItem(getStorageKey(path), 'true');
     } catch (error) {
       // Likes still work without localStorage; this only prevents repeat clicks
     }
@@ -155,11 +159,13 @@
       initLikeButtons,
       requestLikes,
       normalizeCount,
+      getStorageKey,
     };
   }
   window.LikesModule = {
     initLikeButtons,
     requestLikes,
     normalizeCount,
+    getStorageKey,
   };
 })();

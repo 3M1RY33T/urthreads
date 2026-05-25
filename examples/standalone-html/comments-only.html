@@ -51,9 +51,26 @@
         .example-link {
             display: inline-block;
             margin-bottom: 20px;
+            margin-right: 16px;
             color: var(--primary);
             text-decoration: none;
             font-weight: 600;
+        }
+
+        .example-reset-button {
+            display: inline-block;
+            margin-bottom: 20px;
+            border: 0;
+            background: transparent;
+            color: var(--primary);
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .example-link:hover,
+        .example-reset-button:hover {
+            text-decoration: underline;
         }
 
         .comments-container {
@@ -238,6 +255,7 @@
 
         <a class="example-link" href="index.html">← Back to Like + Comment</a>
         <a class="example-link" href="likes-only.html">Like-Only Example →</a>
+        <button class="example-reset-button" type="button" data-reset-example-session>Reset browser session</button>
 
         <div class="comments-container">
             <div data-worker-comments
@@ -280,13 +298,8 @@
         </div>
     </div>
 
-    <script>
-        window.THREAD_CF_WORKER = 'https://cflc-test-worker.3m1ry33t.workers.dev';
-
-        window.COMMENTS_CONFIG = {
-            endpoint: `${window.THREAD_CF_WORKER}/comments`
-        };
-    </script>
+    <script src="../urthreads-worker-config.js"></script>
+    <script src="../../client/example-session.js"></script>
     <script src="../../client/comments.js"></script>
 </body>
 </html>

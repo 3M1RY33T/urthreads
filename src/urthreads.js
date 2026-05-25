@@ -93,6 +93,9 @@ SETUP COMMANDS:
   wrangler             Manage wrangler.toml values
   env                  Manage local .env values
   env add-origin       Add exact allowed origins to .env
+  env copy             Copy one .env value to clipboard
+  env copy-admin-key   Copy ADMIN_API_KEY to clipboard
+  env copy-worker-url  Copy WORKER_URL to clipboard
   env open             Open .env in the system text viewer
   admin-key            Generate/rotate ADMIN_API_KEY in .env
   admin-session        Configure ADMIN_SESSION_TTL_SECONDS in .env

@@ -7,7 +7,8 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { writeEnvFile } = require("./admin-key");
+const { copyToClipboard, writeEnvFile } = require("./admin-key");
+const { writeExampleWorkerConfig } = require("./example-config");
 const { formatHelp } = require("./help-format");
 
 const DEFAULT_ENV_PATH = ".env";
@@ -180,6 +181,34 @@ function openEnvFile(envPath, options = {}) {
   return openCommand;
 }
 
+function resolveCopyKey(command, key = "") {
+  const shortcutKeys = {
+    "copy-admin-key": "ADMIN_API_KEY",
+    "copy-dashboard-key": "ADMIN_API_KEY",
+    "copy-worker-url": "WORKER_URL",
+    "copy-dashboard-url": "WORKER_URL",
+    "copy-d1-id": "D1_DATABASE_ID",
+    "copy-database-id": "D1_DATABASE_ID",
+    "copy-account-id": "CLOUDFLARE_ACCOUNT_ID",
+  };
+  return shortcutKeys[command] || key;
+}
+
+function copyEnvValue(envPath, key, options = {}) {
+  const normalizedKey = normalizeEnvKey(key);
+  const values = readEnvValues(envPath);
+  const value = values[normalizedKey] ?? "";
+  if (!value) {
+    throw new Error(`${normalizedKey} is not set in ${path.basename(envPath)}.`);
+  }
+
+  const copier = options.copyToClipboard || copyToClipboard;
+  return {
+    key: normalizedKey,
+    ...copier(value),
+  };
+}
+
 function showHelp(commandName = "node src/env-config.js") {
   process.stdout.write(formatHelp(`
 urthreads Environment Config
@@ -188,12 +217,17 @@ USAGE:
   ${commandName} add-origin <origin...> [--target default|staging|prod]
   ${commandName} set <KEY> <VALUE>
   ${commandName} get <KEY> [--show-sensitive]
+  ${commandName} copy <KEY>
+  ${commandName} copy-admin-key
+  ${commandName} copy-worker-url
+  ${commandName} copy-d1-id
   ${commandName} list [--show-sensitive]
   ${commandName} open [--viewer <command>]
 
 DESCRIPTION:
   Updates local .env values without exposing secrets in terminal output.
   add-origin removes wildcard CORS values and appends exact origins safely.
+  copy sends values to your clipboard without printing them.
 
 `));
 }
@@ -235,6 +269,12 @@ async function main(argv = process.argv.slice(2), options = {}) {
     writeEnvFile(envPath, { [key]: args.value });
     output.write(`Updated ${path.relative(process.cwd(), envPath) || ".env"}\n`);
     output.write(`${key}=${isSensitiveEnvKey(key) ? "(hidden)" : args.value}\n`);
+    if (key === "WORKER_URL") {
+      const exampleConfigPath = writeExampleWorkerConfig(args.value, {
+        generatedBy: "urthreads env set WORKER_URL",
+      });
+      output.write(`Updated ${path.relative(process.cwd(), exampleConfigPath)}\n`);
+    }
     return;
   }
 
@@ -243,6 +283,22 @@ async function main(argv = process.argv.slice(2), options = {}) {
     const values = readEnvValues(envPath);
     const value = values[key] ?? "";
     output.write(`${key}=${isSensitiveEnvKey(key) && !args.showSensitive ? "(hidden)" : value}\n`);
+    return;
+  }
+
+  if (command === "copy" || command === "cp" || command.startsWith("copy-")) {
+    const key = resolveCopyKey(command, args.key);
+    if (!key) {
+      throw new Error("Provide an environment key to copy.");
+    }
+    const result = copyEnvValue(envPath, key, {
+      copyToClipboard: options.copyToClipboard,
+    });
+    if (result.copied) {
+      output.write(`Copied ${result.key} to your clipboard.\n`);
+    } else {
+      output.write(`Clipboard copy was unavailable, so ${result.key} was not printed.\n`);
+    }
     return;
   }
 
@@ -274,6 +330,7 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_ORIGIN_KEY,
   getOpenCommand,
+  copyEnvValue,
   main,
   mergeAllowedOrigins,
   normalizeOrigin,

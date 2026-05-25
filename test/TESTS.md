@@ -1,4 +1,4 @@
-# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Tests
+# <img src="../assets/img/urthreads.png" alt="" width="40" height="40" align="left" style="margin-right: 20px;" /> Tests
 
 | [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | *> Tests <* |
 | --- | --- | --- | --- | --- |
@@ -23,8 +23,9 @@ node --test
 - `admin-session.test.js`: dashboard session TTL parsing and `.env` updates.
 - `cli.test.js`: moderation and D1 SQL command builders.
 - `env-config.test.js`: allowed origin merging, wildcard removal, sensitive output hiding, and `.env` opening behavior.
+- `example-config.test.js`: generated browser-safe Worker config for static HTML examples.
 - `setup-env.test.js`: Worker URL normalization, endpoint generation, origin list cleanup, Wrangler D1 creation parsing, hidden prompts, and `.env` generation.
-- `thread-cf.test.js`: top-level command routing and help output.
+- `urthreads.test.js`: top-level command routing and help output.
 - `wrangler-config.test.js`: `wrangler.toml` generation, value updates, listing, and CLI routing.
 
 ## What The Tests Emphasize
@@ -47,7 +48,7 @@ Syntax check important entrypoints:
 
 ```bash
 node --check src/worker.js
-node --check src/thread-cf.js
+node --check src/urthreads.js
 node --check src/env-config.js
 node --check web/dashboard.js
 ```

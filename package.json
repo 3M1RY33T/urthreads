@@ -22,7 +22,7 @@
     "static-site"
   ],
   "bin": {
-    "urthreads": "./src/thread-cf.js"
+    "urthreads": "./src/urthreads.js"
   },
   "files": [
     ".env.example",
@@ -39,8 +39,8 @@
     "node": ">=16"
   },
   "scripts": {
-    "setup:env": "node src/thread-cf.js setup-env",
-    "check": "node --check src/worker.js && node --check src/thread-cf.js && node --check src/setup-env.js && node --check src/wrangler-config.js && node --check src/backout.js && node --check src/help-format.js && node --check web/dashboard.js",
+    "setup:env": "node src/urthreads.js setup-env",
+    "check": "node --check src/worker.js && node --check src/urthreads.js && node --check src/setup-env.js && node --check src/wrangler-config.js && node --check src/backout.js && node --check src/help-format.js && node --check src/example-config.js && node --check client/likes.js && node --check client/comments.js && node --check client/example-session.js && node --check examples/urthreads-worker-config.js && node --check web/dashboard.js",
     "prepublishOnly": "npm test && npm run check",
     "test": "node --test"
   }

@@ -5,6 +5,7 @@ const path = require("path");
 const { test } = require("node:test");
 const {
   buildCleanTargets,
+  inferDatabaseName,
   inferWorkerName,
   main,
   parseArgs,
@@ -47,6 +48,9 @@ test("parses back-out command flags", () => {
 
   assert.strictEqual(args.command, "clean-env");
   assert.strictEqual(args.deleteWorker, true);
+  assert.strictEqual(parseArgs(["delete-worker", "--delete-database"]).deleteDatabase, true);
+  assert.strictEqual(parseArgs(["delete-worker", "--delete-d1"]).deleteDatabase, true);
+  assert.strictEqual(parseArgs(["delete-worker", "--database", "threads-db"]).databaseName, "threads-db");
   assert.strictEqual(args.yes, true);
   assert.strictEqual(args.envName, "production");
   assert.strictEqual(args.workerName, "urthreads-worker");
@@ -140,6 +144,18 @@ test("infers worker name from wrangler toml before env file", () => {
   assert.strictEqual(inferWorkerName(parseArgs(["delete-worker"]), tempDir), "from-wrangler");
 });
 
+test("infers database name from wrangler toml before env file", () => {
+  const tempDir = makeTempDir();
+  fs.writeFileSync(path.join(tempDir, ".env"), "D1_DATABASE_NAME=from-env\n", "utf8");
+  fs.writeFileSync(
+    path.join(tempDir, "wrangler.toml"),
+    '[[d1_databases]]\ndatabase_name = "from-wrangler"\n',
+    "utf8"
+  );
+
+  assert.strictEqual(inferDatabaseName(parseArgs(["delete-worker"]), tempDir), "from-wrangler");
+});
+
 test("delete worker requires exact confirmation text", async () => {
   const tempDir = makeTempDir();
   fs.writeFileSync(path.join(tempDir, "wrangler.toml"), 'name = "urthreads-worker"\n', "utf8");
@@ -187,6 +203,31 @@ test("delete worker runs wrangler and offers full local cleanup after confirmati
   assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), false);
   assert.strictEqual(fs.existsSync(path.join(tempDir, "wrangler.toml")), false);
   assert.strictEqual(fs.existsSync(path.join(tempDir, ".wrangler")), false);
+});
+
+test("delete worker can also delete inferred D1 database after confirmation", async () => {
+  const tempDir = makeTempDir();
+  fs.writeFileSync(
+    path.join(tempDir, "wrangler.toml"),
+    'name = "urthreads-worker"\n\n[[d1_databases]]\ndatabase_name = "threads-db"\n',
+    "utf8"
+  );
+  const calls = [];
+
+  await main(["delete-worker", "--keep-local"], {
+    cwd: tempDir,
+    output: { write: () => {} },
+    prompter: makePrompter(["delete urthreads-worker", true, "delete database threads-db"]),
+    runner: (command, args) => {
+      calls.push({ command, args });
+      return { status: 0 };
+    },
+  });
+
+  assert.deepStrictEqual(calls, [
+    { command: "wrangler", args: ["delete", "urthreads-worker"] },
+    { command: "wrangler", args: ["d1", "delete", "threads-db"] },
+  ]);
 });
 
 test("delete worker can leave local files unchanged", async () => {

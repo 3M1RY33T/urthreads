@@ -72,8 +72,10 @@ function parseArgs(argv = []) {
     includeEnv: false,
     includeWrangler: false,
     deleteWorker: false,
+    deleteDatabase: false,
     keepLocal: false,
     workerName: "",
+    databaseName: "",
     envName: "default",
     envPath: ".env",
     wranglerPath: "wrangler.toml",
@@ -100,6 +102,8 @@ function parseArgs(argv = []) {
       result.includeWrangler = true;
     } else if (arg === "--delete-worker") {
       result.deleteWorker = true;
+    } else if (arg === "--delete-database" || arg === "--delete-d1") {
+      result.deleteDatabase = true;
     } else if (arg === "--keep-local") {
       result.keepLocal = true;
     } else if (arg === "--name" || arg === "--worker") {
@@ -109,6 +113,13 @@ function parseArgs(argv = []) {
       result.workerName = arg.slice("--name=".length);
     } else if (arg.startsWith("--worker=")) {
       result.workerName = arg.slice("--worker=".length);
+    } else if (arg === "--database" || arg === "--db") {
+      result.databaseName = argv[index + 1] || "";
+      index += 1;
+    } else if (arg.startsWith("--database=")) {
+      result.databaseName = arg.slice("--database=".length);
+    } else if (arg.startsWith("--db=")) {
+      result.databaseName = arg.slice("--db=".length);
     } else if (arg === "--env") {
       result.envName = argv[index + 1] || result.envName;
       index += 1;
@@ -216,6 +227,23 @@ function inferWorkerName(args, cwd = process.cwd()) {
   return fromEnv ? String(fromEnv).trim() : "";
 }
 
+function inferDatabaseName(args, cwd = process.cwd()) {
+  if (args.databaseName) return args.databaseName;
+
+  const wranglerPath = path.resolve(cwd, args.wranglerPath);
+  if (fs.existsSync(wranglerPath)) {
+    const content = fs.readFileSync(wranglerPath, "utf8");
+    const fromD1Binding = getWranglerValue(content, "database_name", args.envName);
+    if (fromD1Binding) return fromD1Binding;
+    const fromVars = getWranglerValue(content, "D1_DATABASE_NAME", args.envName);
+    if (fromVars) return fromVars;
+  }
+
+  const envPath = path.resolve(cwd, args.envPath);
+  const fromEnv = readEnvValues(envPath).D1_DATABASE_NAME;
+  return fromEnv ? String(fromEnv).trim() : "";
+}
+
 async function confirmLocalRemoval(targets, args, prompter, output, cwd = process.cwd()) {
   if (targets.length === 0) return true;
 
@@ -268,6 +296,73 @@ function runWranglerDelete(workerName, args, options = {}) {
   return runner("wrangler", commandArgs, { stdio: "inherit" });
 }
 
+function runWranglerDeleteDatabase(databaseName, args, options = {}) {
+  const runner = options.runner || spawnSync;
+  const output = options.output || process.stdout;
+  const commandArgs = ["d1", "delete", databaseName];
+
+  if (args.dryRun) {
+    output.write(`[dry-run] Would run: wrangler ${commandArgs.join(" ")}\n`);
+    return { status: 0 };
+  }
+
+  return runner("wrangler", commandArgs, { stdio: "inherit" });
+}
+
+async function maybeDeleteDatabase(args, options = {}) {
+  const cwd = options.cwd || process.cwd();
+  const output = options.output || process.stdout;
+  const prompter = options.prompter || createPrompter();
+  const databaseName = inferDatabaseName(args, cwd);
+
+  try {
+    if (!databaseName) {
+      output.write("No D1 database name could be inferred. Pass --database <database-name> to delete one.\n");
+      return { deleted: false, databaseName: "" };
+    }
+
+    let shouldDeleteDatabase = args.deleteDatabase;
+    if (!shouldDeleteDatabase && !args.yes && !args.dryRun) {
+      output.write(`\nOptional destructive step: delete D1 database '${databaseName}'.\n`);
+      output.write("This permanently deletes stored likes, comments, moderation data, and dashboard records for that database.\n");
+      shouldDeleteDatabase = await prompter.confirm(
+        "Also delete this D1 database?",
+        false
+      );
+    }
+
+    if (!shouldDeleteDatabase) {
+      output.write("D1 database was left unchanged.\n");
+      return { deleted: false, databaseName };
+    }
+
+    if (!args.yes && !args.dryRun) {
+      const expected = `delete database ${databaseName}`;
+      const confirmed = await prompter.confirmText(
+        `Type '${expected}' to confirm D1 database deletion`,
+        expected
+      );
+      if (!confirmed) {
+        output.write("D1 database deletion cancelled.\n");
+        return { deleted: false, databaseName };
+      }
+    }
+
+    const result = runWranglerDeleteDatabase(databaseName, args, {
+      output,
+      runner: options.runner,
+    });
+    if (result?.error) throw result.error;
+    if (typeof result?.status === "number" && result.status !== 0) {
+      throw new Error(`wrangler d1 delete failed with exit code ${result.status}.`);
+    }
+    output.write(`${args.dryRun ? "Checked" : "Deleted"} D1 database ${databaseName}\n`);
+    return { deleted: true, databaseName };
+  } finally {
+    if (!options.prompter) prompter.close();
+  }
+}
+
 async function deleteWorker(args, options = {}) {
   const cwd = options.cwd || process.cwd();
   const output = options.output || process.stdout;
@@ -303,6 +398,8 @@ async function deleteWorker(args, options = {}) {
       throw new Error(`wrangler delete failed with exit code ${result.status}.`);
     }
     output.write(`${args.dryRun ? "Checked" : "Deleted"} Worker ${workerName}\n`);
+
+    await maybeDeleteDatabase(args, { ...options, prompter });
 
     if (!args.keepLocal) {
       const cleanupTargets = buildFullCleanTargets(args, cwd);
@@ -340,10 +437,10 @@ urthreads Back-Out Commands
 USAGE:
   ${commandName} clean-files [--cache] [--dry-run] [--yes]
   ${commandName} clean [--dry-run] [--yes]
-  ${commandName} clean-all [--delete-worker] [--dry-run] [--yes]
+  ${commandName} clean-all [--delete-worker] [--delete-database] [--dry-run] [--yes]
   ${commandName} clean-cache [--dry-run] [--yes]
-  ${commandName} delete-worker [--name <worker>] [--env staging|production] [--dry-run] [--yes] [--keep-local]
-  ${commandName} clean-env [--delete-worker] [--dry-run] [--yes]
+  ${commandName} delete-worker [--name <worker>] [--database <database>] [--delete-database] [--env staging|production] [--dry-run] [--yes] [--keep-local]
+  ${commandName} clean-env [--delete-worker] [--delete-database] [--dry-run] [--yes]
 
 DESCRIPTION:
   Removes generated local setup files and caches so you can test setup from
@@ -355,7 +452,7 @@ COMMANDS:
   clean-all         Remove caches, working files, and environment files; optionally delete Worker
   clean-files       Remove local generated environment files: .env, wrangler.toml, .dev.vars
   clean-cache       Remove local cache directories such as .wrangler and node_modules/.cache
-  delete-worker     Delete the deployed Cloudflare Worker, then recommend full local cleanup
+  delete-worker     Delete the deployed Cloudflare Worker, optionally delete D1, then recommend full local cleanup
   clean-env         Remove .env and wrangler.toml, then optionally delete the Worker
 
 `));
@@ -420,9 +517,12 @@ module.exports = {
   cleanLocalState,
   createPrompter,
   deleteWorker,
+  inferDatabaseName,
   inferWorkerName,
   main,
+  maybeDeleteDatabase,
   parseArgs,
   removePaths,
+  runWranglerDeleteDatabase,
   showHelp,
 };

@@ -5,6 +5,7 @@ const path = require("path");
 const { test } = require("node:test");
 const {
   buildWranglerTomlContent,
+  collectWranglerConfig,
   getWranglerValue,
   listWranglerValues,
   main,
@@ -28,7 +29,39 @@ test("builds wrangler toml content from config", () => {
   assert.ok(content.includes('account_id = "account"'));
   assert.ok(content.includes('database_name = "db"'));
   assert.ok(content.includes('database_id = "db-id"'));
+  assert.ok(content.includes('WORKER_URL = ""'));
   assert.ok(content.includes("[env.production.vars]"));
+});
+
+test("reuses default D1 database for environments unless overridden", () => {
+  const content = buildWranglerTomlContent({
+    databaseName: "created-db",
+    databaseId: "real-db-id",
+  });
+
+  assert.ok(!content.includes("00000000-0000-0000-0000-000000000000"));
+  assert.strictEqual(getWranglerValue(content, "database_name", "production"), "created-db");
+  assert.strictEqual(getWranglerValue(content, "database_id", "production"), "real-db-id");
+  assert.strictEqual(getWranglerValue(content, "database_name", "staging"), "created-db");
+  assert.strictEqual(getWranglerValue(content, "database_id", "staging"), "real-db-id");
+});
+
+test("wrangler init defaults reuse the entered D1 database for environments", async () => {
+  const config = await collectWranglerConfig(
+    {
+      ask: async (question, defaultValue = "") => {
+        if (question === "D1 database name") return "created-db";
+        if (question === "D1 database ID") return "real-db-id";
+        return defaultValue;
+      },
+    },
+    { write: () => {} }
+  );
+
+  assert.strictEqual(config.productionDatabaseName, "created-db");
+  assert.strictEqual(config.productionDatabaseId, "real-db-id");
+  assert.strictEqual(config.stagingDatabaseName, "created-db");
+  assert.strictEqual(config.stagingDatabaseId, "real-db-id");
 });
 
 test("updates default and environment wrangler values", () => {
@@ -70,6 +103,27 @@ test("sets wrangler values through cli", async () => {
 
   const content = fs.readFileSync(tomlPath, "utf8");
   assert.strictEqual(getWranglerValue(content, "database_id"), "cli-db-id");
+});
+
+test("setting wrangler worker url updates browser example config", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  fs.writeFileSync(tomlPath, buildWranglerTomlContent({}), "utf8");
+  const oldCwd = process.cwd();
+
+  try {
+    process.chdir(tempDir);
+    await main(["set", "WORKER_URL", "https://worker.example.dev/", "--file", tomlPath], {
+      commandName: "urthreads wrangler",
+      output: { write: () => {} },
+    });
+  } finally {
+    process.chdir(oldCwd);
+  }
+
+  const configPath = path.join(tempDir, "examples", "urthreads-worker-config.js");
+  assert.ok(fs.existsSync(configPath));
+  assert.ok(fs.readFileSync(configPath, "utf8").includes("https://worker.example.dev"));
 });
 
 test("creates wrangler toml through cli with provided config", async () => {

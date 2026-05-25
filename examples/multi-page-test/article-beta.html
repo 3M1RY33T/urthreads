@@ -18,6 +18,9 @@
       <h1>Article Beta</h1>
       <p>A second full article for verifying that likes, comments, dashboard post stats, and audit log entries remain tied to the requested path.</p>
       <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+      <div class="session-tools">
+        <button type="button" data-reset-example-session>Reset browser session</button>
+      </div>
     </header>
 
     <article class="article">
@@ -70,6 +73,8 @@
     </section>
   </main>
 
+  <script src="../urthreads-worker-config.js"></script>
+  <script src="../../client/example-session.js"></script>
   <script src="config.js"></script>
   <script src="../../client/likes.js"></script>
   <script src="../../client/comments.js"></script>

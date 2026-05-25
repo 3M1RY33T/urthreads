@@ -12,6 +12,7 @@ const path = require("path");
 const readline = require("readline");
 const { spawnSync } = require("child_process");
 const { buildWranglerTomlContent } = require("./wrangler-config");
+const { writeExampleWorkerConfig } = require("./example-config");
 const { formatHelp } = require("./help-format");
 
 const DEFAULTS = {
@@ -20,9 +21,9 @@ const DEFAULTS = {
   accountId: "",
   apiToken: "",
   databaseId: "",
-  workerUrl: "https://urthreads-worker.your-subdomain.workers.dev",
-  allowedOrigins: "https://example.com,https://www.example.com",
-  allowedOriginsStaging: "https://staging.example.com,http://localhost:3000,http://localhost:8787",
+  workerUrl: "",
+  allowedOrigins: "https://example.com,https://www.example.com,http://localhost:8000,http://[::1]:8000",
+  allowedOriginsStaging: "https://staging.example.com,http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787",
   allowedOriginsProd: "https://example.com,https://www.example.com",
   maxCommentsPerPost: "100",
 };
@@ -48,6 +49,40 @@ function sanitizeOriginList(value) {
     .join(",");
 }
 
+function normalizeWorkerName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function buildDefaultWorkerName(databaseName) {
+  const baseName = normalizeWorkerName(databaseName || DEFAULTS.databaseName);
+
+  return `${baseName || "urthreads"}-worker`;
+}
+
+function normalizeWorkersDevSubdomain(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\.workers\.dev\/?$/, "")
+    .replace(/\/.*$/, "")
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function buildDefaultWorkerUrl(workerName, workersDevSubdomain) {
+  const normalizedWorkerName = normalizeWorkerName(workerName);
+  const subdomain = normalizeWorkersDevSubdomain(workersDevSubdomain);
+  if (!normalizedWorkerName || !subdomain) return "";
+  return `https://${normalizedWorkerName}.${subdomain}.workers.dev`;
+}
+
 function envLine(key, value) {
   return `${key}=${String(value ?? "")}`;
 }
@@ -68,6 +103,32 @@ function getCommandOutput(result) {
   return `${result?.stdout || ""}\n${result?.stderr || ""}`.trim();
 }
 
+function redactSetupOutput(value) {
+  return String(value || "")
+    .replace(/\b[0-9a-f]{32}\b/gi, "<redacted-account-id>")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<redacted-id>")
+    .replace(/(database_id\s*=\s*")[^"]+(")/gi, "$1<redacted-id>$2")
+    .replace(/("database_id"\s*:\s*")[^"]+(")/gi, "$1<redacted-id>$2")
+    .replace(/(CLOUDFLARE_API_TOKEN=)[^\s]+/gi, "$1<redacted>")
+    .replace(/(ADMIN_API_KEY=)[^\s]+/gi, "$1<redacted>")
+    .replace(/\/Users\/[^\s"']+/g, "<redacted-path>");
+}
+
+function summarizeWranglerFailure(output) {
+  const text = String(output || "");
+  const lower = text.toLowerCase();
+  if (lower.includes("database with that name already exists")) {
+    return "A D1 database with that name already exists, but setup could not read its ID automatically.";
+  }
+  if (lower.includes("not authenticated") || lower.includes("cloudflare_api_token")) {
+    return "Wrangler is not authenticated for this command.";
+  }
+  if (lower.includes("permission") || lower.includes("forbidden") || lower.includes("unauthorized")) {
+    return "Wrangler does not have permission to complete this command.";
+  }
+  return "Wrangler could not complete the command.";
+}
+
 function parseD1DatabaseId(output) {
   const text = String(output || "");
   const assignment = text.match(/database_id\s*=\s*"([^"]+)"/i);
@@ -80,21 +141,111 @@ function parseD1DatabaseId(output) {
   return uuid ? uuid[0] : "";
 }
 
+function getD1DatabaseIdFromRecord(record) {
+  if (!record || typeof record !== "object") return "";
+  return String(
+    record.database_id ||
+    record.uuid ||
+    record.id ||
+    record.uid ||
+    ""
+  ).trim();
+}
+
+function parseD1DatabaseList(output, databaseName) {
+  const text = String(output || "");
+  const targetName = String(databaseName || "").trim();
+  if (!targetName) return "";
+
+  try {
+    const parsed = JSON.parse(text);
+    const records = Array.isArray(parsed) ? parsed : parsed.result;
+    if (Array.isArray(records)) {
+      const match = records.find((record) => String(record?.name || record?.database_name || "").trim() === targetName);
+      const databaseId = getD1DatabaseIdFromRecord(match);
+      if (databaseId) return databaseId;
+    }
+  } catch (error) {
+    // Wrangler text output is parsed below.
+  }
+
+  const escapedName = targetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nameThenId = new RegExp(`${escapedName}[\\s│|]+([0-9a-f-]{36})`, "i");
+  const idThenName = new RegExp(`([0-9a-f-]{36})[\\s│|]+${escapedName}`, "i");
+  const nameThenIdMatch = text.match(nameThenId);
+  if (nameThenIdMatch) return nameThenIdMatch[1];
+  const idThenNameMatch = text.match(idThenName);
+  return idThenNameMatch ? idThenNameMatch[1] : "";
+}
+
 function isWranglerInstalled(options = {}) {
   return commandSucceeded(runWrangler(["--version"], options));
 }
 
 function isWranglerAuthenticated(options = {}) {
-  return commandSucceeded(runWrangler(["whoami"], options));
+  const result = runWrangler(["whoami"], options);
+  if (!commandSucceeded(result)) return false;
+
+  const output = getCommandOutput(result).toLowerCase();
+  return !(
+    output.includes("you are not authenticated") ||
+    output.includes("not authenticated") ||
+    output.includes("please run `wrangler login`") ||
+    output.includes("please run wrangler login")
+  );
 }
 
 function createD1Database(databaseName, options = {}) {
   const result = runWrangler(["d1", "create", databaseName], options);
   const output = getCommandOutput(result);
+  const databaseId = parseD1DatabaseId(output);
+  if (commandSucceeded(result) && databaseId) {
+    return {
+      ok: true,
+      databaseId,
+      output,
+      reused: false,
+    };
+  }
+
+  if (output.toLowerCase().includes("database with that name already exists")) {
+    const listResult = runWrangler(["d1", "list", "--json"], options);
+    const listOutput = getCommandOutput(listResult);
+    const existingDatabaseId = parseD1DatabaseList(listOutput, databaseName);
+    if (commandSucceeded(listResult) && existingDatabaseId) {
+      return {
+        ok: true,
+        databaseId: existingDatabaseId,
+        output: `${output}\n${listOutput}`.trim(),
+        reused: true,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    databaseId,
+    output,
+    reused: false,
+  };
+}
+
+function initializeD1Schema(databaseName, options = {}) {
+  const result = runWrangler(
+    ["d1", "execute", databaseName, "--remote", "--file=src/schema.sql"],
+    options
+  );
   return {
     ok: commandSucceeded(result),
-    databaseId: parseD1DatabaseId(output),
-    output,
+    output: getCommandOutput(result),
+  };
+}
+
+function deployWorker(options = {}) {
+  const result = runWrangler(["deploy"], options);
+  return {
+    ok: commandSucceeded(result),
+    output: getCommandOutput(result),
   };
 }
 
@@ -134,8 +285,8 @@ function buildEnvContent(config) {
     envLine("ALLOWED_ORIGINS_PROD", allowedOriginsProd),
     "",
     "# Client endpoint URLs",
-    envLine("LIKES_ENDPOINT", buildEndpointUrl(workerUrl, "/likes")),
-    envLine("COMMENTS_ENDPOINT", buildEndpointUrl(workerUrl, "/comments")),
+    envLine("LIKES_ENDPOINT", workerUrl ? buildEndpointUrl(workerUrl, "/likes") : ""),
+    envLine("COMMENTS_ENDPOINT", workerUrl ? buildEndpointUrl(workerUrl, "/comments") : ""),
     "",
     "# Admin dashboard",
     "# Generate/rotate with: urthreads admin-key",
@@ -161,11 +312,13 @@ USAGE:
 DESCRIPTION:
   Starts an interactive setup that creates a local .env file for Cloudflare,
   D1, Worker deployment, CORS, and client endpoint values.
+  When Wrangler is authenticated and a workers.dev subdomain is provided,
+  setup can optionally initialize the D1 schema and deploy the Worker.
 
 WHAT YOU NEED:
   - Wrangler installed and authenticated, or existing Cloudflare/D1 values
   - D1 database name
-  - Worker URL after deployment, or the URL you plan to use
+  - Worker URL after deployment, or your workers.dev subdomain to derive it
   - Allowed website origins for CORS
 
 SAFETY:
@@ -318,12 +471,18 @@ async function collectConfig(prompter, output = process.stdout, options = {}) {
       const createdDatabase = createD1Database(databaseName, options);
       if (createdDatabase.ok && createdDatabase.databaseId) {
         databaseId = createdDatabase.databaseId;
-        output.write(`Created D1 database '${databaseName}'.\n`);
+        if (createdDatabase.reused) {
+          output.write(`Using existing D1 database '${databaseName}'.\n`);
+        } else {
+          output.write(`Created D1 database '${databaseName}'.\n`);
+        }
       } else {
-        output.write("Unable to create or parse the D1 database ID from Wrangler output.\n");
+        output.write(`${summarizeWranglerFailure(createdDatabase.output)}\n`);
+        output.write("You can continue by pasting the existing D1 database ID into the next hidden prompt.\n");
+        output.write("Find it with: wrangler d1 list\n");
         if (createdDatabase.output) {
-          output.write("Wrangler output:\n");
-          output.write(`${createdDatabase.output}\n`);
+          output.write("Sanitized Wrangler detail:\n");
+          output.write(`${redactSetupOutput(createdDatabase.output)}\n`);
         }
       }
     }
@@ -337,8 +496,17 @@ async function collectConfig(prompter, output = process.stdout, options = {}) {
   }
 
   output.write("\nWorker deployment\n");
-  const workerName = await prompter.ask("Worker name", DEFAULTS.workerName);
-  const defaultWorkerUrl = DEFAULTS.workerUrl.replace(DEFAULTS.workerName, workerName);
+  const workerName = await prompter.ask("Worker name", buildDefaultWorkerName(databaseName));
+  const workersDevSubdomain = await prompter.ask("Workers.dev subdomain, if known", "");
+  const defaultWorkerUrl = buildDefaultWorkerUrl(workerName, workersDevSubdomain);
+  if (defaultWorkerUrl) {
+    output.write("A likely Worker URL was derived from your Worker name and workers.dev subdomain.\n");
+    output.write("After deployment, double-check the deployed URL and update it if needed with:\n");
+  } else {
+    output.write("Leave Worker URL blank until after deployment if you do not know it yet.\n");
+    output.write("After deployment, copy your deployed URL and set it with:\n");
+  }
+  output.write("urthreads env set WORKER_URL https://your-worker.workers.dev\n");
   const workerUrl = await prompter.ask("Worker URL", defaultWorkerUrl);
 
   output.write("\nCORS origins\n");
@@ -375,7 +543,46 @@ async function collectConfig(prompter, output = process.stdout, options = {}) {
     allowedOriginsStaging,
     allowedOriginsProd,
     maxCommentsPerPost,
+    canOfferDeployment: Boolean(defaultWorkerUrl),
   };
+}
+
+async function offerDeploymentSteps(config, prompter, output = process.stdout, options = {}) {
+  if (!config.canOfferDeployment || options.useWrangler === false) return false;
+
+  output.write("\nDeployment\n");
+  output.write("Because a workers.dev subdomain was provided, setup can initialize the D1 schema and deploy now.\n");
+  const shouldRunDeployment = await prompter.confirm(
+    "Initialize D1 schema and deploy Worker now?",
+    false
+  );
+  if (!shouldRunDeployment) return false;
+
+  const databaseName = config.databaseName || DEFAULTS.databaseName;
+  output.write(`Initializing D1 schema for '${databaseName}'...\n`);
+  const schemaResult = initializeD1Schema(databaseName, options);
+  if (!schemaResult.ok) {
+    output.write("D1 schema initialization did not complete.\n");
+    if (schemaResult.output) {
+      output.write("Sanitized Wrangler detail:\n");
+      output.write(`${redactSetupOutput(schemaResult.output)}\n`);
+    }
+    return false;
+  }
+  output.write("Initialized D1 schema.\n");
+
+  output.write("Deploying Worker...\n");
+  const deployResult = deployWorker(options);
+  if (!deployResult.ok) {
+    output.write("Worker deployment did not complete.\n");
+    if (deployResult.output) {
+      output.write("Sanitized Wrangler detail:\n");
+      output.write(`${redactSetupOutput(deployResult.output)}\n`);
+    }
+    return false;
+  }
+  output.write("Deployed Worker.\n");
+  return true;
 }
 
 async function main(argv = process.argv.slice(2), options = {}) {
@@ -409,6 +616,10 @@ async function main(argv = process.argv.slice(2), options = {}) {
     fs.writeFileSync(envPath, content, { encoding: "utf8", mode: 0o600 });
 
     output.write("\nCreated .env\n");
+    const exampleConfigPath = writeExampleWorkerConfig(config.workerUrl, {
+      generatedBy: "urthreads setup-env",
+    });
+    output.write(`Updated ${path.relative(process.cwd(), exampleConfigPath)}\n`);
 
     const wranglerPath = path.resolve(process.cwd(), "wrangler.toml");
     const shouldCreateWrangler = await prompter.confirm(
@@ -435,11 +646,18 @@ async function main(argv = process.argv.slice(2), options = {}) {
       }
     }
 
+    const deploymentCompleted = await offerDeploymentSteps(config, prompter, output, options);
+
     output.write("\n");
     output.write("Next steps:\n");
-    output.write(`  1. Initialize D1 schema: wrangler d1 execute ${config.databaseName || DEFAULTS.databaseName} --remote --file=src/schema.sql\n`);
-    output.write("  2. Deploy: wrangler deploy\n");
-    output.write("  3. Point your site scripts at the deployed Worker endpoints\n\n");
+    if (!deploymentCompleted) {
+      output.write(`  1. Initialize D1 schema: wrangler d1 execute ${config.databaseName || DEFAULTS.databaseName} --remote --file=src/schema.sql\n`);
+      output.write("  2. Deploy: wrangler deploy\n");
+      output.write("  3. Point your site scripts at the deployed Worker endpoints\n\n");
+    } else {
+      output.write("  1. Double-check the deployed Worker URL in Cloudflare or Wrangler output.\n");
+      output.write("  2. Point your site scripts at the deployed Worker endpoints.\n\n");
+    }
   } finally {
     if (!options.prompter) prompter.close();
   }
@@ -456,14 +674,22 @@ module.exports = {
   DEFAULTS,
   buildEndpointUrl,
   buildEnvContent,
+  buildDefaultWorkerName,
+  buildDefaultWorkerUrl,
   collectConfig,
   createPrompter,
   createD1Database,
+  deployWorker,
+  initializeD1Schema,
   isWranglerAuthenticated,
   isWranglerInstalled,
   main,
   normalizeUrl,
   parseD1DatabaseId,
+  parseD1DatabaseList,
+  offerDeploymentSteps,
+  redactSetupOutput,
   sanitizeOriginList,
+  summarizeWranglerFailure,
   showHelp,
 };

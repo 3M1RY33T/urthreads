@@ -1,4 +1,4 @@
-# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Dashboard
+# <img src="../assets/img/urthreads.png" alt="" width="40" height="40" align="left" style="margin-right: 20px;" /> Dashboard
 
 | [Overview](../README.md) | *> Dashboard <* | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | [Tests](../test/TESTS.md) |
 | --- | --- | --- | --- | --- |
@@ -52,8 +52,16 @@ Before using the dashboard, create an admin key and configure the deployed Worke
 
 ```bash
 urthreads admin-key
-wrangler secret put ADMIN_API_KEY
 urthreads admin-session --ttl 1h
+```
+
+`urthreads admin-key` copies the key to your clipboard and can optionally store it as the deployed Worker secret. Expiring keys can also update `ADMIN_API_KEY_EXPIRES_AT` in `wrangler.toml` and prompt for deployment.
+
+If you skip the automated expiration update, run:
+
+```bash
+urthreads wrangler set ADMIN_API_KEY_EXPIRES_AT "2026-06-01T02:26:56.380Z"
+wrangler deploy
 ```
 
 Then open the dashboard and enter:

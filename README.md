@@ -1,11 +1,17 @@
-# <img src="https://raw.githubusercontent.com/3M1RY33T/urthreads/main/assets/img/urthreads.png" alt="" width="28" height="28" align="middle"> Urthreads
+# <img src="./assets/img/urthreads.png" alt="" width="40" height="40" align="left" style="margin-right: 20px;" /> Urthreads
 
 | *> Overview <* | [Dashboard](./web/DASHBOARD.md) | [Configuration And Environment](./config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](./src/PROGRAM_LOGIC.md) | [Tests](./test/TESTS.md) |
 | --- | --- | --- | --- | --- |
 
 `urthreads` is self-hosted software for adding engagement features to static websites. Simply deploy the Worker to your own Cloudflare account, connect it to your own D1 database, and manage the dashboard with your own admin key.
 
+![Overview](./assets/img/dashboard-overview.png)
+
 It adds page likes, threaded comments, moderation, dashboard analytics, and admin tooling for blogs, portfolios, documentation sites, and other static pages that need interaction without running a traditional server.
+
+### Before We Begin...
+
+Special thanks to [lostinurarms1](https://www.deviantart.com/lostinurarms1) for the logo design. You can submit your own request from their Fiverr page to get a specialized logo!
 
 ## What It Does
 
@@ -36,9 +42,10 @@ The guided setup can:
 - Worker name and Worker URL
 - allowed browser origins
 - maximum comments returned per post
+- optionally initialize the D1 schema and deploy when you provide a workers.dev subdomain
 
 It writes a local `.env` with restricted file permissions where your platform supports them.
-It also offers to create `wrangler.toml` from the same answers. You can create it separately later with:
+It also updates `examples/urthreads-worker-config.js` so the static HTML examples point at the configured Worker, and offers to create `wrangler.toml` from the same answers. You can create it separately later with:
 
 ```bash
 urthreads wrangler-init
@@ -71,7 +78,7 @@ npm run setup:env
 The local npm script calls the same CLI flow as `urthreads setup-env`. You can also run the repo entrypoint directly:
 
 ```bash
-node src/thread-cf.js setup-env
+node src/urthreads.js setup-env
 ```
 
 ## Website Usage
@@ -119,14 +126,37 @@ Add a comments container:
 
 Complete examples live in [examples](./examples).
 
+For the static HTML examples, run `urthreads setup-env` or set `WORKER_URL` so `examples/urthreads-worker-config.js` points at your deployed Worker. You can also test a Worker without editing files by appending a query string:
+
+```text
+http://localhost:8000/examples/standalone-html/?worker=https://your-worker.workers.dev
+```
+
+If you serve examples from `http://localhost:8000` or `http://[::1]:8000`, add that exact origin to `ALLOWED_ORIGINS` and redeploy the Worker.
+
 ## Dashboard Usage
 
 Generate an admin key:
 
 ```bash
 urthreads admin-key
-wrangler secret put ADMIN_API_KEY
 urthreads admin-session --ttl 1h
+```
+
+`urthreads admin-key` writes the key to `.env`, copies it to your clipboard, and can optionally store it with `wrangler secret put ADMIN_API_KEY`. If the key expires, it can also update `ADMIN_API_KEY_EXPIRES_AT` in `wrangler.toml` and prompt for deployment.
+
+If you skip the automated expiration update, run the commands shown by the CLI:
+
+```bash
+urthreads wrangler set ADMIN_API_KEY_EXPIRES_AT "2026-06-01T02:26:56.380Z"
+wrangler deploy
+```
+
+Copy dashboard values without printing them:
+
+```bash
+urthreads env copy-worker-url
+urthreads env copy-admin-key
 ```
 
 Open [web/index.html](./web/index.html), enter the Worker URL and admin key, and the dashboard will create a short-lived cookie session.
@@ -167,13 +197,16 @@ urthreads setup-env                       # Create local .env interactively
 urthreads wrangler-init                   # Create wrangler.toml interactively
 urthreads wrangler set database_id d1-id  # Update wrangler.toml D1 ID
 urthreads env add-origin https://example.com # Add an allowed browser origin
+urthreads env copy-admin-key              # Copy admin key without printing it
+urthreads env copy-worker-url             # Copy Worker URL for the dashboard
+urthreads env copy D1_DATABASE_ID         # Copy setup values without printing them
 urthreads env open                        # Open .env in a viewer
 urthreads admin-key                       # Generate or rotate admin key
 urthreads admin-session --ttl 1h          # Set dashboard session lifetime
 urthreads clean --dry-run                 # Preview cleanup while keeping config/database
 urthreads clean                           # Remove caches and working files
 urthreads clean-all                       # Full local reset; can also delete Worker
-urthreads delete-worker --name worker     # Delete Worker, then offer full local cleanup
+urthreads delete-worker --name worker     # Delete Worker, optionally delete D1, then offer cleanup
 urthreads pending                         # List pending comments
 urthreads approve 5 --execute             # Approve comment 5
 urthreads reject 5 --execute              # Reject comment 5
@@ -193,10 +226,12 @@ urthreads clean --dry-run
 urthreads clean
 urthreads clean-all
 urthreads clean-all --delete-worker
+urthreads clean-all --delete-worker --delete-database
 urthreads delete-worker --name urthreads-worker
+urthreads delete-worker --name urthreads-worker --delete-database
 ```
 
-Prefer `clean` for normal retesting: it removes caches and local working outputs while keeping your database and configuration files. Use `clean-all` when you want to start setup over: it removes caches, working files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first. `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends removing local environment, cache, and working files that refer to the deleted Worker. Use `--keep-local` only when you intentionally want to retain local setup files.
+Prefer `clean` for normal retesting: it removes caches and local working outputs while keeping your database and configuration files. Use `clean-all` when you want to start setup over: it removes caches, working files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first. If a Worker is being deleted, the CLI also asks whether to delete the inferred D1 database; pass `--delete-database` only when you intentionally want to remove stored likes, comments, and moderation data. `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends removing local environment, cache, and working files that refer to the deleted Worker. Use `--keep-local` only when you intentionally want to retain local setup files.
 
 The granular `clean-cache`, `clean-files`, and `clean-env` commands remain available for targeted cleanup, but the unified commands are the recommended release-test workflow.
 
@@ -236,7 +271,6 @@ Please do not report security vulnerabilities in public issues. Use the private 
 ## Upcoming Changes
 
 - Optional Cloudflare Access or identity-provider setup notes for teams that want MFA in front of the dashboard.
-- Notification hooks for pending comments.
-- More production hardening examples, including rate limiting and scheduled cleanup.
+- Widget-style Overview display: Add, arrange or remove overview statistics freely, giving users the freedom to display the specific data they choose to handle for their own uses.
+- Comment approval settings (auto-approve comments, auto-detele rejected comments)
 - Broader Worker integration tests for deployed or local Wrangler environments.
-- Packaging cleanup for the final npm publish surface.

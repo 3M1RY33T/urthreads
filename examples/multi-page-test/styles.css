@@ -99,6 +99,12 @@ button:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
+.session-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

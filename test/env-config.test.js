@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { test } = require("node:test");
 const {
+  copyEnvValue,
   getOpenCommand,
   main,
   mergeAllowedOrigins,
@@ -74,6 +75,73 @@ test("sets and hides sensitive env values in command output", async () => {
   assert.strictEqual(values.ADMIN_API_KEY, "secret-value");
   assert.ok(writes.join("").includes("ADMIN_API_KEY=(hidden)"));
   assert.ok(!writes.join("").includes("secret-value"));
+});
+
+test("setting worker url updates browser example config", async () => {
+  const tempDir = makeTempDir();
+  const envPath = path.join(tempDir, ".env");
+  const oldCwd = process.cwd();
+  const writes = [];
+
+  try {
+    process.chdir(tempDir);
+    await main(["set", "WORKER_URL", "https://worker.example.dev/", "--env", envPath], {
+      commandName: "urthreads env",
+      output: { write: (message) => writes.push(message) },
+    });
+  } finally {
+    process.chdir(oldCwd);
+  }
+
+  const configPath = path.join(tempDir, "examples", "urthreads-worker-config.js");
+  assert.ok(fs.existsSync(configPath));
+  assert.ok(fs.readFileSync(configPath, "utf8").includes("https://worker.example.dev"));
+  assert.ok(writes.join("").includes("examples/urthreads-worker-config.js"));
+});
+
+test("copies env values to clipboard without printing the value", async () => {
+  const tempDir = makeTempDir();
+  const envPath = path.join(tempDir, ".env");
+  fs.writeFileSync(envPath, "ADMIN_API_KEY=secret-value\nWORKER_URL=https://worker.example.dev\n", "utf8");
+  const writes = [];
+  const copied = [];
+
+  await main(["copy", "ADMIN_API_KEY", "--env", envPath], {
+    commandName: "urthreads env",
+    output: { write: (message) => writes.push(message) },
+    copyToClipboard: (value) => {
+      copied.push(value);
+      return { copied: true, command: "test-copy" };
+    },
+  });
+
+  assert.deepStrictEqual(copied, ["secret-value"]);
+  assert.ok(writes.join("").includes("Copied ADMIN_API_KEY to your clipboard."));
+  assert.ok(!writes.join("").includes("secret-value"));
+});
+
+test("copies dashboard shortcuts to clipboard", async () => {
+  const tempDir = makeTempDir();
+  const envPath = path.join(tempDir, ".env");
+  fs.writeFileSync(envPath, "WORKER_URL=https://worker.example.dev\n", "utf8");
+  const copied = [];
+
+  await main(["copy-worker-url", "--env", envPath], {
+    commandName: "urthreads env",
+    output: { write: () => {} },
+    copyToClipboard: (value) => {
+      copied.push(value);
+      return { copied: true, command: "test-copy" };
+    },
+  });
+
+  assert.deepStrictEqual(copied, ["https://worker.example.dev"]);
+  assert.strictEqual(
+    copyEnvValue(envPath, "WORKER_URL", {
+      copyToClipboard: (value) => ({ copied: value === "https://worker.example.dev", command: "test-copy" }),
+    }).copied,
+    true
+  );
 });
 
 test("opens env file with platform viewer", async () => {

@@ -1,7 +1,7 @@
 (function() {
   const params = new URLSearchParams(window.location.search);
-  const storageKey = "urthreads:multi-page-test:worker";
-  const defaultWorker = "https://cflc-test-worker.3m1ry33t.workers.dev";
+  const defaultWorker = window.URTHREADS_WORKER || "";
+  const storageKey = `urthreads:multi-page-test:worker:${defaultWorker || "default"}`;
 
   function getStoredWorkerUrl() {
     try {
@@ -38,7 +38,12 @@
 
   const workerUrl = workerParam?.replace(/\/$/, "") || getStoredWorkerUrl() || defaultWorker;
 
-  window.THREAD_CF_WORKER = workerUrl;
+  if (!workerUrl) {
+    console.warn("[urthreads examples] No Worker URL configured. Run urthreads setup-env, run urthreads env set WORKER_URL <url>, or append ?worker=https://your-worker.workers.dev.");
+    return;
+  }
+
+  window.URTHREADS_WORKER = workerUrl;
 
   window.LIKES_CONFIG = {
     endpoint: `${workerUrl}/likes`,

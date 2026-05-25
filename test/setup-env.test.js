@@ -1,14 +1,24 @@
 const assert = require("assert");
 const { PassThrough } = require("stream");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { test } = require("node:test");
 const {
   buildEndpointUrl,
   buildEnvContent,
+  buildDefaultWorkerName,
+  buildDefaultWorkerUrl,
   collectConfig,
   createPrompter,
+  createD1Database,
   parseD1DatabaseId,
+  parseD1DatabaseList,
   normalizeUrl,
+  redactSetupOutput,
   sanitizeOriginList,
+  summarizeWranglerFailure,
+  main,
 } = require("../src/setup-env");
 
 test("normalizes worker URLs by trimming trailing slashes", () => {
@@ -36,6 +46,48 @@ test("sanitizes comma-separated origin lists", () => {
   );
 });
 
+test("builds valid default worker names from database names", () => {
+  assert.strictEqual(buildDefaultWorkerName("threads-example"), "threads-example-worker");
+  assert.strictEqual(buildDefaultWorkerName("My Threads_DB"), "my-threads-db-worker");
+  assert.strictEqual(buildDefaultWorkerName("  ---  "), "urthreads-worker");
+});
+
+test("builds default worker URLs from worker name and workers.dev subdomain", () => {
+  assert.strictEqual(
+    buildDefaultWorkerUrl("threads-example-worker", "example-subdomain"),
+    "https://threads-example-worker.example-subdomain.workers.dev"
+  );
+  assert.strictEqual(
+    buildDefaultWorkerUrl("My Worker", "https://My-Account.workers.dev/"),
+    "https://my-worker.my-account.workers.dev"
+  );
+  assert.strictEqual(buildDefaultWorkerUrl("threads-example-worker", ""), "");
+});
+
+test("redacts identifiers and local paths from setup output", () => {
+  const redacted = redactSetupOutput(
+    'database_id = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"\n/accounts/a9ca5d89fb7128fcc3e1a47abd5e913f/workers\n/Users/example/Library/Preferences/.wrangler/logs/log.txt\n'
+  );
+
+  assert.ok(!redacted.includes("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"));
+  assert.ok(!redacted.includes("a9ca5d89fb7128fcc3e1a47abd5e913f"));
+  assert.ok(!redacted.includes("/Users/example"));
+  assert.ok(redacted.includes("<redacted-id>"));
+  assert.ok(redacted.includes("<redacted-account-id>"));
+  assert.ok(redacted.includes("<redacted-path>"));
+});
+
+test("summarizes common wrangler setup failures", () => {
+  assert.strictEqual(
+    summarizeWranglerFailure("A database with that name already exists"),
+    "A D1 database with that name already exists, but setup could not read its ID automatically."
+  );
+  assert.strictEqual(
+    summarizeWranglerFailure("You are not authenticated"),
+    "Wrangler is not authenticated for this command."
+  );
+});
+
 test("builds env content with derived client endpoints", () => {
   const content = buildEnvContent({
     accountId: "account",
@@ -44,8 +96,8 @@ test("builds env content with derived client endpoints", () => {
     databaseId: "db-id",
     workerName: "worker",
     workerUrl: "https://worker.example.workers.dev/",
-    allowedOrigins: "https://example.com",
-    allowedOriginsStaging: "http://localhost:8787",
+    allowedOrigins: "https://example.com,http://localhost:8000,http://[::1]:8000",
+    allowedOriginsStaging: "http://localhost:8787,http://[::1]:8000",
     allowedOriginsProd: "https://example.com",
     maxCommentsPerPost: "50",
   });
@@ -55,6 +107,7 @@ test("builds env content with derived client endpoints", () => {
   assert.ok(content.includes("LIKES_ENDPOINT=https://worker.example.workers.dev/likes"));
   assert.ok(content.includes("COMMENTS_ENDPOINT=https://worker.example.workers.dev/comments"));
   assert.ok(content.includes("ALLOWED_ORIGINS_PROD=https://example.com"));
+  assert.ok(content.includes("http://[::1]:8000"));
   assert.ok(content.includes("ADMIN_API_KEY="));
   assert.ok(content.includes("ADMIN_API_KEY_EXPIRES_AT="));
   assert.ok(content.includes("MAX_COMMENTS_PER_POST=50"));
@@ -102,6 +155,44 @@ test("parses D1 database IDs from wrangler output", () => {
     parseD1DatabaseId('{"database_id":"bbbbbbbb-1111-2222-3333-cccccccccccc"}'),
     "bbbbbbbb-1111-2222-3333-cccccccccccc"
   );
+});
+
+test("parses existing D1 database IDs from wrangler list output", () => {
+  const databaseId = parseD1DatabaseList(JSON.stringify([
+    { name: "other-db", uuid: "11111111-1111-1111-1111-111111111111" },
+    { name: "threads-example", uuid: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb" },
+  ]), "threads-example");
+
+  assert.strictEqual(databaseId, "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+});
+
+test("reuses existing D1 database when create reports a duplicate name", () => {
+  const calls = [];
+  const result = createD1Database("threads-example", {
+    runner: (command, args) => {
+      calls.push([command, args]);
+      if (args[1] === "create") {
+        return {
+          status: 1,
+          stderr: "A database with that name already exists\n",
+        };
+      }
+      return {
+        status: 0,
+        stdout: JSON.stringify([
+          { name: "threads-example", uuid: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb" },
+        ]),
+      };
+    },
+  });
+
+  assert.deepStrictEqual(calls, [
+    ["wrangler", ["d1", "create", "threads-example"]],
+    ["wrangler", ["d1", "list", "--json"]],
+  ]);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.reused, true);
+  assert.strictEqual(result.databaseId, "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
 });
 
 test("creates D1 database through Wrangler when authenticated", async () => {
@@ -154,6 +245,55 @@ test("creates D1 database through Wrangler when authenticated", async () => {
   assert.ok(confirmQuestions.includes("Create D1 database 'threads-example' with Wrangler now?"));
 });
 
+test("prompts for wrangler login when whoami says not authenticated", async () => {
+  const calls = [];
+  const confirmQuestions = [];
+  const prompter = {
+    ask: async (question, defaultValue = "") => {
+      if (question === "D1 database name to create or use") return "threads-example";
+      return defaultValue || `${question}-value`;
+    },
+    askHidden: async (question, defaultValue = "") => defaultValue,
+    confirm: async (question, defaultValue = true) => {
+      confirmQuestions.push(question);
+      if (question === "Add Cloudflare account ID or API token to .env anyway?") return false;
+      return defaultValue;
+    },
+  };
+  const runner = (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === "whoami" && calls.filter((call) => call[1][0] === "whoami").length === 1) {
+      return {
+        status: 0,
+        stdout: "You are not authenticated. Please run `wrangler login`.\n",
+      };
+    }
+    if (args[0] === "d1") {
+      return {
+        status: 0,
+        stdout: 'database_id = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"\n',
+      };
+    }
+    return { status: 0, stdout: "ok\n" };
+  };
+
+  const config = await collectConfig(
+    prompter,
+    { write: () => {} },
+    { runner }
+  );
+
+  assert.deepStrictEqual(calls.map((call) => call[1][0]), [
+    "--version",
+    "whoami",
+    "login",
+    "whoami",
+    "d1",
+  ]);
+  assert.ok(confirmQuestions.includes("Run wrangler login now?"));
+  assert.strictEqual(config.databaseId, "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+});
+
 test("hidden prompt falls back to normal prompt outside tty", async () => {
   const input = new PassThrough();
   input.isTTY = false;
@@ -163,4 +303,132 @@ test("hidden prompt falls back to normal prompt outside tty", async () => {
 
   assert.strictEqual(typeof prompter.askHidden, "function");
   prompter.close();
+});
+
+test("setup writes example Worker config from configured Worker URL", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-setup-main-"));
+  const oldCwd = process.cwd();
+  const prompter = {
+    ask: async (question, defaultValue = "") => {
+      if (question === "Worker URL") return "https://worker.example.dev/";
+      return defaultValue || `${question}-value`;
+    },
+    askHidden: async (question, defaultValue = "") => defaultValue || `${question}-secret`,
+    confirm: async (question, defaultValue = true) => {
+      if (question === "Create wrangler.toml from these answers too?") return false;
+      return defaultValue;
+    },
+    close: () => {},
+  };
+
+  try {
+    process.chdir(tempDir);
+    await main([], {
+      output: { write: () => {} },
+      prompter,
+      useWrangler: false,
+    });
+  } finally {
+    process.chdir(oldCwd);
+  }
+
+  assert.ok(fs.existsSync(path.join(tempDir, ".env")));
+  const config = fs.readFileSync(path.join(tempDir, "examples", "urthreads-worker-config.js"), "utf8");
+  assert.ok(config.includes("https://worker.example.dev"));
+});
+
+test("setup can initialize schema and deploy when worker url is derived", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-setup-deploy-"));
+  const oldCwd = process.cwd();
+  const calls = [];
+  const confirmQuestions = [];
+  const prompter = {
+    ask: async (question, defaultValue = "") => {
+      if (question === "D1 database name to create or use") return "threads-example";
+      if (question === "Workers.dev subdomain, if known") return "example-subdomain";
+      return defaultValue;
+    },
+    askHidden: async (question, defaultValue = "") => defaultValue,
+    confirm: async (question, defaultValue = true) => {
+      confirmQuestions.push(question);
+      if (question === "Add Cloudflare account ID or API token to .env anyway?") return false;
+      if (question === "Create wrangler.toml from these answers too?") return true;
+      if (question === "Initialize D1 schema and deploy Worker now?") return true;
+      return defaultValue;
+    },
+    close: () => {},
+  };
+  const runner = (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === "d1" && args[1] === "create") {
+      return {
+        status: 0,
+        stdout: 'database_id = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"\n',
+      };
+    }
+    return { status: 0, stdout: "ok\n" };
+  };
+
+  try {
+    process.chdir(tempDir);
+    await main([], {
+      output: { write: () => {} },
+      prompter,
+      runner,
+    });
+  } finally {
+    process.chdir(oldCwd);
+  }
+
+  assert.ok(confirmQuestions.includes("Initialize D1 schema and deploy Worker now?"));
+  assert.deepStrictEqual(calls.map((call) => call[1]), [
+    ["--version"],
+    ["whoami"],
+    ["d1", "create", "threads-example"],
+    ["d1", "execute", "threads-example", "--remote", "--file=src/schema.sql"],
+    ["deploy"],
+  ]);
+});
+
+test("setup does not offer deployment when worker url cannot be derived", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-setup-no-deploy-"));
+  const oldCwd = process.cwd();
+  const confirmQuestions = [];
+  const prompter = {
+    ask: async (question, defaultValue = "") => {
+      if (question === "D1 database name to create or use") return "threads-example";
+      if (question === "Workers.dev subdomain, if known") return "";
+      return defaultValue;
+    },
+    askHidden: async (question, defaultValue = "") => defaultValue,
+    confirm: async (question, defaultValue = true) => {
+      confirmQuestions.push(question);
+      if (question === "Add Cloudflare account ID or API token to .env anyway?") return false;
+      if (question === "Create wrangler.toml from these answers too?") return false;
+      return defaultValue;
+    },
+    close: () => {},
+  };
+  const runner = (command, args) => {
+    if (args[0] === "d1" && args[1] === "create") {
+      return {
+        status: 0,
+        stdout: 'database_id = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"\n',
+      };
+    }
+    return { status: 0, stdout: "ok\n" };
+  };
+
+  try {
+    process.chdir(tempDir);
+    await main([], {
+      output: { write: () => {} },
+      prompter,
+      runner,
+    });
+  } finally {
+    process.chdir(oldCwd);
+  }
+
+  assert.ok(!confirmQuestions.includes("Initialize D1 schema and deploy Worker now?"));
 });

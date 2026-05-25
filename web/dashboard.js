@@ -536,6 +536,15 @@
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 401 && payload.reason === 'missing_admin_key') {
+        throw new Error('The deployed Worker does not have ADMIN_API_KEY set. Run wrangler secret put ADMIN_API_KEY, paste your admin key, then try again.');
+      }
+      if (response.status === 401 && payload.reason === 'admin_key_expired') {
+        throw new Error('The deployed Worker says this admin key is expired. Generate a new key or update ADMIN_API_KEY_EXPIRES_AT, then deploy again.');
+      }
+      if (response.status === 401 && payload.reason === 'invalid_admin_key') {
+        throw new Error('The admin key was rejected by the deployed Worker. Make sure you ran wrangler secret put ADMIN_API_KEY with the same key from your .env.');
+      }
       throw new Error(payload.error || `Session request failed with ${response.status}.`);
     }
     return payload;

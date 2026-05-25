@@ -18,6 +18,9 @@
       <h1>urthreads multi-page test</h1>
       <p>This static mini-site exercises likes and comments across separate paths. Use it with `wrangler dev` or a deployed Worker to verify path isolation, moderation, replies, and comment likes.</p>
       <div class="worker-note">Worker: <code data-worker-origin>Loading...</code></div>
+      <div class="session-tools">
+        <button type="button" data-reset-example-session>Reset browser session</button>
+      </div>
     </header>
 
     <section class="grid" aria-label="Test pages">
@@ -80,6 +83,8 @@
     </section>
   </main>
 
+  <script src="../urthreads-worker-config.js"></script>
+  <script src="../../client/example-session.js"></script>
   <script src="config.js"></script>
   <script src="../../client/likes.js"></script>
 </body>

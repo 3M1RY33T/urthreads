@@ -1,4 +1,4 @@
-# <img src="../assets/img/urthreads.png" alt="" width="28" height="28" align="middle" /> Program Logic
+# <img src="../assets/img/urthreads.png" alt="" width="40" height="40" align="left" style="margin-right: 20px;" /> Program Logic
 
 | [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | *> Program Logic <* | [Tests](../test/TESTS.md) |
 | --- | --- | --- | --- | --- |
@@ -144,9 +144,10 @@ The Worker also contains compatibility helpers for older databases, such as ensu
 
 ## CLI Files
 
-- `thread-cf.js`: public CLI entrypoint and command router.
+- `urthreads.js`: public CLI entrypoint and command router.
 - `setup-env.js`: guided `.env` creation.
 - `env-config.js`: local `.env` inspection and updates, including allowed origins.
+- `example-config.js`: browser-safe Worker config generation for static examples.
 - `wrangler-config.js`: guided `wrangler.toml` creation and updates.
 - `admin-key.js`: admin key generation and rotation.
 - `admin-session.js`: session TTL configuration.
@@ -166,6 +167,7 @@ urthreads admin-session --ttl 1h
 urthreads clean --dry-run
 urthreads clean
 urthreads clean-all
+urthreads clean-all --delete-worker --delete-database
 urthreads delete-worker --name urthreads-worker
 urthreads pending
 urthreads approve 5 --execute

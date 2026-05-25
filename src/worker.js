@@ -20,7 +20,7 @@ const jsonHeaders = {
 };
 
 const MAX_COMMENTS_PER_POST = 100;
-const ADMIN_SESSION_COOKIE_NAME = "thread_cf_admin_session";
+const ADMIN_SESSION_COOKIE_NAME = "urthreads_admin_session";
 const DEFAULT_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
 const MIN_ADMIN_SESSION_TTL_SECONDS = 15 * 60;
 const MAX_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
@@ -481,12 +481,13 @@ async function getAdminKeyAccess(credential, env, now = Date.now()) {
   const expectedKey = String(env.ADMIN_API_KEY || "").trim();
   const normalizedCredential = String(credential || "").trim();
   const fingerprint = await fingerprintCredential(normalizedCredential);
-  if (!expectedKey) return { allowed: false, fingerprint };
-  if (isAdminKeyExpired(env, now)) return { allowed: false, fingerprint };
+  if (!expectedKey) return { allowed: false, fingerprint, reason: "missing_admin_key" };
+  if (isAdminKeyExpired(env, now)) return { allowed: false, fingerprint, reason: "admin_key_expired" };
 
   return {
     allowed: timingSafeEqualString(normalizedCredential, expectedKey),
     fingerprint,
+    reason: timingSafeEqualString(normalizedCredential, expectedKey) ? "" : "invalid_admin_key",
   };
 }
 
@@ -1595,11 +1596,15 @@ async function handleAdminSession(request, env, url) {
     const credential = String(payload.adminKey || payload.key || "").trim();
     const access = await getAdminKeyAccess(credential, env);
     if (!access.allowed) {
-      const response = jsonResponse(request, env, { error: "Admin access is required." }, 401);
+      const response = jsonResponse(request, env, {
+        error: "Admin access is required.",
+        reason: access.reason || "invalid_admin_key",
+      }, 401);
       await recordAdminAuditLog(env, request, url, {
         action: "admin.session.create_failed",
         status: response.status,
         fingerprint: access.fingerprint,
+        details: { reason: access.reason || "invalid_admin_key" },
       });
       return response;
     }

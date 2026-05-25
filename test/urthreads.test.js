@@ -10,12 +10,12 @@ const {
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
   WRANGLER_COMMANDS,
-} = require("../src/thread-cf");
+} = require("../src/urthreads");
 
-const threadCfPath = path.join(__dirname, "..", "src", "thread-cf.js");
+const urthreadsPath = path.join(__dirname, "..", "src", "urthreads.js");
 
-function runThreadCf(args) {
-  return spawnSync(process.execPath, [threadCfPath, ...args], {
+function runUrthreads(args) {
+  return spawnSync(process.execPath, [urthreadsPath, ...args], {
     encoding: "utf8",
   });
 }
@@ -42,7 +42,7 @@ test("exposes setup and moderation command groups", () => {
 });
 
 test("prints top-level help", () => {
-  const result = runThreadCf(["--help"]);
+  const result = runUrthreads(["--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("urthreads - self-hosted static-site engagement"));
@@ -60,7 +60,7 @@ test("prints top-level help", () => {
 });
 
 test("routes setup help through urthreads", () => {
-  const result = runThreadCf(["setup-env", "--help"]);
+  const result = runUrthreads(["setup-env", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("urthreads .env Setup"));
@@ -68,7 +68,7 @@ test("routes setup help through urthreads", () => {
 });
 
 test("routes env help through urthreads", () => {
-  const result = runThreadCf(["env", "--help"]);
+  const result = runUrthreads(["env", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Environment Config"));
@@ -76,7 +76,7 @@ test("routes env help through urthreads", () => {
 });
 
 test("routes wrangler help through urthreads", () => {
-  const result = runThreadCf(["wrangler", "--help"]);
+  const result = runUrthreads(["wrangler", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Wrangler Config"));
@@ -84,7 +84,7 @@ test("routes wrangler help through urthreads", () => {
 });
 
 test("routes admin key help through urthreads", () => {
-  const result = runThreadCf(["admin-key", "--help"]);
+  const result = runUrthreads(["admin-key", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Admin Key Generator"));
@@ -92,7 +92,7 @@ test("routes admin key help through urthreads", () => {
 });
 
 test("routes admin session help through urthreads", () => {
-  const result = runThreadCf(["admin-session", "--help"]);
+  const result = runUrthreads(["admin-session", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Admin Session Config"));
@@ -100,7 +100,7 @@ test("routes admin session help through urthreads", () => {
 });
 
 test("routes back-out help through urthreads", () => {
-  const result = runThreadCf(["backout", "--help"]);
+  const result = runUrthreads(["backout", "--help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Back-Out Commands"));
@@ -108,7 +108,7 @@ test("routes back-out help through urthreads", () => {
 });
 
 test("routes comment management help through urthreads", () => {
-  const result = runThreadCf(["comments", "help"]);
+  const result = runUrthreads(["comments", "help"]);
 
   assert.strictEqual(result.status, 0);
   assert.ok(result.stdout.includes("Comment Management Tool"));
