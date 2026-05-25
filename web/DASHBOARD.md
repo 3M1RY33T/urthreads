@@ -1,4 +1,4 @@
-# <img src="../assets/img/urthreads.png" alt="" width="40" height="40" align="left" style="margin-right: 20px;" /> Dashboard
+# <img src="https://raw.githubusercontent.com/3M1RY33T/urthreads/main/assets/img/urthreads.png" alt="" width="40" height="40" align="left" style="margin-right: 20px;" /> Dashboard
 
 | [Overview](../README.md) | *> Dashboard <* | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | [Tests](../test/TESTS.md) |
 | --- | --- | --- | --- | --- |
