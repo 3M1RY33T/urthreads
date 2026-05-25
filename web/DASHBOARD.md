@@ -119,8 +119,6 @@ The legend stays in the section header; range and date controls sit in the colla
 
 ## Comments
 
-![Comments](../assets/img/dashboard-comments.png)
-
 The Comments section supports:
 
 - status filtering: all, pending, approved, hidden, rejected
