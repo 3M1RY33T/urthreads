@@ -10,11 +10,11 @@ This directory contains environment templates for local setup and Wrangler deplo
 - `.env.example`: local environment template used by CLI commands and setup.
 - `wrangler.toml.example`: Cloudflare Worker deployment template.
 
-Copy these when starting a project:
+From the repository root, copy these when starting a project:
 
 ```bash
-cp .env.example ../.env
-cp wrangler.toml.example ../wrangler.toml
+cp config/.env.example .env
+cp config/wrangler.toml.example wrangler.toml
 ```
 
 Real `.env` files and `wrangler.toml` files commonly contain local or account-specific values. Do not commit secrets.

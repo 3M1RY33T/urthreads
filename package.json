@@ -22,17 +22,18 @@
     "static-site"
   ],
   "bin": {
-    "urthreads": "./src/urthreads.js"
+    "urthreads": "src/urthreads.js"
   },
   "files": [
-    ".env.example",
     "assets/",
     "client/",
     "config/",
     "src/",
     "test/",
     "web/",
+    "CONTRIBUTING.md",
     "README.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {

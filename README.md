@@ -124,7 +124,7 @@ Add a comments container:
 </div>
 ```
 
-Complete examples live in [examples](./examples).
+Complete examples live in the [GitHub examples directory](https://github.com/3M1RY33T/urthreads/tree/main/examples).
 
 For the static HTML examples, run `urthreads setup-env` or set `WORKER_URL` so `examples/urthreads-worker-config.js` points at your deployed Worker. You can also test a Worker without editing files by appending a query string:
 
