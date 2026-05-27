@@ -5,7 +5,7 @@
  */
 (function() {
   const params = new URLSearchParams(window.location.search);
-  const defaultWorkerUrl = "";
+  const defaultWorkerUrl = "https://test-worker.3m1ry33t.workers.dev";
   const storageKey = `urthreads:example:worker:${defaultWorkerUrl || "default"}`;
 
   function normalizeWorkerUrl(value) {

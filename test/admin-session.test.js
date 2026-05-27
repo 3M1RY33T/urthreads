@@ -9,6 +9,10 @@ const {
   parseSessionTtlValue,
   main,
 } = require("../src/admin-session");
+const {
+  buildWranglerTomlContent,
+  getWranglerValue,
+} = require("../src/wrangler-config");
 
 test("parses admin session TTL durations", () => {
   assert.strictEqual(parseSessionTtlValue("default"), 3600);
@@ -25,9 +29,10 @@ test("rejects invalid admin session TTL durations", () => {
 });
 
 test("parses admin session CLI flags", () => {
-  const args = parseArgs(["--env", ".env.local", "--ttl=30m"]);
+  const args = parseArgs(["--env", ".env.local", "--toml", "wrangler.custom.toml", "--ttl=30m"]);
 
   assert.strictEqual(args.envPath, ".env.local");
+  assert.strictEqual(args.wranglerPath, "wrangler.custom.toml");
   assert.strictEqual(args.ttl, "30m");
 });
 
@@ -42,4 +47,55 @@ test("writes admin session TTL to env file", async () => {
   const content = fs.readFileSync(envPath, "utf8");
   assert.ok(content.includes("ADMIN_API_KEY=existing"));
   assert.ok(content.includes(`${ADMIN_SESSION_TTL_SECONDS_NAME}=1800`));
+});
+
+test("writes admin session TTL to env and wrangler toml", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-admin-session-wrangler-"));
+  const envPath = path.join(tmpDir, ".env");
+  const wranglerPath = path.join(tmpDir, "wrangler.toml");
+  fs.writeFileSync(envPath, "ADMIN_API_KEY=existing\n", "utf8");
+  fs.writeFileSync(wranglerPath, buildWranglerTomlContent({
+    adminSessionTtlSeconds: "3600",
+  }), "utf8");
+  const writes = [];
+
+  await main(["--env", envPath, "--toml", wranglerPath, "--ttl", "30m"], {
+    output: { write: (message) => writes.push(message) },
+    prompter: null,
+  });
+
+  const envContent = fs.readFileSync(envPath, "utf8");
+  const wranglerContent = fs.readFileSync(wranglerPath, "utf8");
+  assert.ok(envContent.includes(`${ADMIN_SESSION_TTL_SECONDS_NAME}=1800`));
+  assert.strictEqual(getWranglerValue(wranglerContent, ADMIN_SESSION_TTL_SECONDS_NAME), "1800");
+  assert.strictEqual(getWranglerValue(wranglerContent, ADMIN_SESSION_TTL_SECONDS_NAME, "production"), "1800");
+  assert.strictEqual(getWranglerValue(wranglerContent, ADMIN_SESSION_TTL_SECONDS_NAME, "staging"), "1800");
+  assert.ok(writes.join("").includes("Updated wrangler.toml"));
+  assert.ok(writes.join("").includes("Deploy the Worker: wrangler deploy"));
+});
+
+test("admin session can deploy after updating wrangler toml", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-admin-session-deploy-"));
+  const envPath = path.join(tmpDir, ".env");
+  const wranglerPath = path.join(tmpDir, "wrangler.toml");
+  fs.writeFileSync(wranglerPath, buildWranglerTomlContent({}), "utf8");
+  const calls = [];
+  const writes = [];
+
+  await main(["--env", envPath, "--toml", wranglerPath, "--ttl", "15m"], {
+    output: { write: (message) => writes.push(message) },
+    prompter: {
+      confirm: async () => true,
+    },
+    runner: (command, args) => {
+      calls.push({ command, args });
+      return { status: 0, stdout: "deployed", stderr: "" };
+    },
+  });
+
+  assert.deepStrictEqual(calls, [
+    { command: "wrangler", args: ["deploy"] },
+  ]);
+  assert.ok(writes.join("").includes("Deploying Worker..."));
+  assert.ok(writes.join("").includes("Deployed Worker."));
 });

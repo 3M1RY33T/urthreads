@@ -178,7 +178,20 @@ Dashboard UI: https://www.myblog.com/urthreads/
 Worker API:   https://urthreads-worker.your-subdomain.workers.dev
 ```
 
-Copy the contents of [web](./web) to the `/urthreads/` directory in your static site output. The dashboard files should be served so `index.html`, `dashboard.js`, and `styles.css` are available under that path.
+Build the dashboard into your static site output:
+
+```bash
+urthreads dashboard set ./public urthreads
+```
+
+This stores `DASHBOARD_LOCAL_PATH` and `DASHBOARD_ENDPOINT` in `.env`, copies the packaged dashboard to `./public/urthreads/`, and copies required assets to `./public/assets/`. After package updates, refresh that same hosted dashboard with:
+
+```bash
+urthreads dashboard build
+```
+
+If no dashboard path has been saved yet, `urthreads dashboard build` prompts for the static output path and endpoint, saves them, then builds.
+If the selected static output path does not exist, the command asks before creating it.
 
 Add the dashboard's origin to the Worker CORS allowlist. Origins do not include paths, so for `https://www.myblog.com/urthreads/` add:
 
@@ -197,12 +210,15 @@ urthreads setup-env                       # Create local .env interactively
 urthreads wrangler-init                   # Create wrangler.toml interactively
 urthreads wrangler set database_id d1-id  # Update wrangler.toml D1 ID
 urthreads env add-origin https://example.com # Add an allowed browser origin
+urthreads env add-origin https://example.com --staging --production # Add to staged/prod origins
 urthreads env copy-admin-key              # Copy admin key without printing it
 urthreads env copy-worker-url             # Copy Worker URL for the dashboard
 urthreads env copy D1_DATABASE_ID         # Copy setup values without printing them
 urthreads env open                        # Open .env in a viewer
+urthreads dashboard set ./public urthreads # Build hosted dashboard and save its path
+urthreads dashboard build                 # Refresh saved dashboard install
 urthreads admin-key                       # Generate or rotate admin key
-urthreads admin-session --ttl 1h          # Set dashboard session lifetime
+urthreads admin-session --ttl 1h          # Set session lifetime in .env/wrangler.toml
 urthreads clean --dry-run                 # Preview cleanup while keeping config/database
 urthreads clean                           # Remove caches and working files
 urthreads clean-all                       # Full local reset; can also delete Worker

@@ -136,6 +136,70 @@ test("clean-all removes caches, working files, and environment files", async () 
   assert.strictEqual(fs.existsSync(path.join(tempDir, "dist")), false);
 });
 
+test("clean-all stops when worker deletion confirmation is cancelled", async () => {
+  const tempDir = makeTempDir();
+  fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=urthreads-worker\n", "utf8");
+  fs.writeFileSync(path.join(tempDir, "wrangler.toml"), 'name = "urthreads-worker"\n', "utf8");
+  fs.mkdirSync(path.join(tempDir, ".wrangler"));
+  const calls = [];
+  const { writes, output } = makeOutput();
+
+  await main(["clean-all"], {
+    cwd: tempDir,
+    output,
+    prompter: makePrompter([true, "nope"]),
+    runner: (command, args) => {
+      calls.push({ command, args });
+      return { status: 0 };
+    },
+  });
+
+  assert.deepStrictEqual(calls, []);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, "wrangler.toml")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".wrangler")), true);
+  assert.ok(writes.join("").includes("Worker deletion cancelled."));
+  assert.ok(writes.join("").includes("Clean-all cancelled. Local files were left unchanged."));
+  assert.ok(writes.join("").includes("urthreads backout clean-all --yes"));
+  assert.ok(writes.join("").includes("urthreads backout delete-worker --name urthreads-worker"));
+  assert.ok(writes.join("").includes("wrangler d1 list"));
+});
+
+test("clean-all stops when D1 database deletion confirmation is cancelled", async () => {
+  const tempDir = makeTempDir();
+  fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=urthreads-worker\n", "utf8");
+  fs.writeFileSync(
+    path.join(tempDir, "wrangler.toml"),
+    'name = "urthreads-worker"\n\n[[d1_databases]]\ndatabase_name = "threads-db"\n',
+    "utf8"
+  );
+  fs.mkdirSync(path.join(tempDir, "dist"));
+  const calls = [];
+  const { writes, output } = makeOutput();
+
+  await main(["clean-all"], {
+    cwd: tempDir,
+    output,
+    prompter: makePrompter([true, "delete urthreads-worker", true, "nope"]),
+    runner: (command, args) => {
+      calls.push({ command, args });
+      return { status: 0 };
+    },
+  });
+
+  assert.deepStrictEqual(calls, [
+    { command: "wrangler", args: ["delete", "urthreads-worker"] },
+  ]);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, "wrangler.toml")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, "dist")), true);
+  assert.ok(writes.join("").includes("D1 database deletion cancelled."));
+  assert.ok(writes.join("").includes("Clean-all cancelled. Local files were left unchanged."));
+  assert.ok(writes.join("").includes("urthreads backout clean-all --yes"));
+  assert.ok(!writes.join("").includes("urthreads backout delete-worker --name urthreads-worker"));
+  assert.ok(writes.join("").includes("wrangler d1 delete threads-db"));
+});
+
 test("infers worker name from wrangler toml before env file", () => {
   const tempDir = makeTempDir();
   fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=from-env\n", "utf8");

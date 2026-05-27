@@ -26,7 +26,7 @@ database_name = "your-threads"
 database_id = "your-d1-database-id"  # Reuse the default D1 ID unless you create a separate staging database.
 
 [vars]
-ALLOWED_ORIGINS = "https://example.com,http://localhost:8000,http://[::1]:8000"
+ALLOWED_ORIGINS = "http://localhost:8000,http://[::1]:8000"
 WORKER_NAME = "urthreads-worker"
 WORKER_URL = ""
 D1_DATABASE_NAME = "your-threads"
@@ -37,7 +37,7 @@ ADMIN_SESSION_TTL_SECONDS = "3600"
 MAX_COMMENTS_PER_POST = "100"
 
 [env.production.vars]
-ALLOWED_ORIGINS = "https://example.com"
+ALLOWED_ORIGINS = "http://localhost:8000,http://[::1]:8000"
 WORKER_NAME = "urthreads-worker-prod"
 WORKER_URL = ""
 D1_DATABASE_NAME = "your-threads"
@@ -46,7 +46,7 @@ ADMIN_SESSION_TTL_SECONDS = "3600"
 MAX_COMMENTS_PER_POST = "100"
 
 [env.staging.vars]
-ALLOWED_ORIGINS = "https://staging.example.com,http://localhost:3000,http://localhost:8000,http://[::1]:8000"
+ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787"
 WORKER_NAME = "urthreads-worker-staging"
 WORKER_URL = ""
 D1_DATABASE_NAME = "your-threads"

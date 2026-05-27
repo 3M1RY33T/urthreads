@@ -22,9 +22,9 @@ const DEFAULTS = {
   apiToken: "",
   databaseId: "",
   workerUrl: "",
-  allowedOrigins: "https://example.com,https://www.example.com,http://localhost:8000,http://[::1]:8000",
-  allowedOriginsStaging: "https://staging.example.com,http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787",
-  allowedOriginsProd: "https://example.com,https://www.example.com",
+  allowedOrigins: "http://localhost:8000,http://[::1]:8000",
+  allowedOriginsStaging: "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787",
+  allowedOriginsProd: "http://localhost:8000,http://[::1]:8000",
   maxCommentsPerPost: "100",
 };
 

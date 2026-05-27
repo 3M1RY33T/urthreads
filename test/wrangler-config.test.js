@@ -33,6 +33,17 @@ test("builds wrangler toml content from config", () => {
   assert.ok(content.includes("[env.production.vars]"));
 });
 
+test("wrangler defaults allowed origins to localhost-only values", () => {
+  const content = buildWranglerTomlContent({});
+
+  assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS"), "http://localhost:8000,http://[::1]:8000");
+  assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS", "production"), "http://localhost:8000,http://[::1]:8000");
+  assert.strictEqual(
+    getWranglerValue(content, "ALLOWED_ORIGINS", "staging"),
+    "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787"
+  );
+});
+
 test("reuses default D1 database for environments unless overridden", () => {
   const content = buildWranglerTomlContent({
     databaseName: "created-db",
