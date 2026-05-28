@@ -117,6 +117,44 @@ test("clean keeps environment files and removes caches and working files", async
   assert.strictEqual(fs.existsSync(path.join(tempDir, "coverage")), false);
 });
 
+test("clean removes configured dashboard working files", async () => {
+  const tempDir = makeTempDir();
+  const publicPath = path.join(tempDir, "public");
+  fs.writeFileSync(
+    path.join(tempDir, ".env"),
+    `DASHBOARD_LOCAL_PATH=${publicPath}\nDASHBOARD_ENDPOINT=urthreads\n`,
+    "utf8"
+  );
+  fs.mkdirSync(path.join(publicPath, "urthreads"), { recursive: true });
+  fs.mkdirSync(path.join(publicPath, "assets", "img"), { recursive: true });
+  fs.mkdirSync(path.join(publicPath, "assets", "svg"), { recursive: true });
+  fs.writeFileSync(path.join(publicPath, "urthreads", "index.html"), "dashboard", "utf8");
+  fs.writeFileSync(path.join(publicPath, "urthreads", "dashboard.js"), "dashboard js", "utf8");
+  fs.writeFileSync(path.join(publicPath, "urthreads", "styles.css"), "dashboard css", "utf8");
+  fs.writeFileSync(path.join(publicPath, "urthreads", "custom.txt"), "user dashboard note", "utf8");
+  fs.writeFileSync(path.join(publicPath, "assets", "img", "urthreads.png"), "image", "utf8");
+  fs.writeFileSync(path.join(publicPath, "assets", "svg", "cloudflare.svg"), "svg", "utf8");
+  fs.writeFileSync(path.join(publicPath, "assets", "keep.txt"), "user asset", "utf8");
+
+  await main(["clean"], {
+    cwd: tempDir,
+    output: { write: () => {} },
+    prompter: makePrompter([true]),
+  });
+
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "index.html")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "dashboard.js")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "styles.css")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "custom.txt")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "img")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "svg")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "img", "urthreads.png")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "svg", "cloudflare.svg")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "keep.txt")), true);
+});
+
 test("clean-all removes caches, working files, and environment files", async () => {
   const tempDir = makeTempDir();
   fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=urthreads-worker\n", "utf8");
@@ -134,6 +172,70 @@ test("clean-all removes caches, working files, and environment files", async () 
   assert.strictEqual(fs.existsSync(path.join(tempDir, "wrangler.toml")), false);
   assert.strictEqual(fs.existsSync(path.join(tempDir, ".wrangler")), false);
   assert.strictEqual(fs.existsSync(path.join(tempDir, "dist")), false);
+});
+
+test("clean-all stops when worker deletion confirmation is cancelled", async () => {
+  const tempDir = makeTempDir();
+  fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=urthreads-worker\n", "utf8");
+  fs.writeFileSync(path.join(tempDir, "wrangler.toml"), 'name = "urthreads-worker"\n', "utf8");
+  fs.mkdirSync(path.join(tempDir, ".wrangler"));
+  const calls = [];
+  const { writes, output } = makeOutput();
+
+  await main(["clean-all"], {
+    cwd: tempDir,
+    output,
+    prompter: makePrompter([true, "nope"]),
+    runner: (command, args) => {
+      calls.push({ command, args });
+      return { status: 0 };
+    },
+  });
+
+  assert.deepStrictEqual(calls, []);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, "wrangler.toml")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".wrangler")), true);
+  assert.ok(writes.join("").includes("Worker deletion cancelled."));
+  assert.ok(writes.join("").includes("Clean-all cancelled. Local files were left unchanged."));
+  assert.ok(writes.join("").includes("urthreads backout clean-all --yes"));
+  assert.ok(writes.join("").includes("urthreads backout delete-worker --name urthreads-worker"));
+  assert.ok(writes.join("").includes("wrangler d1 list"));
+});
+
+test("clean-all stops when D1 database deletion confirmation is cancelled", async () => {
+  const tempDir = makeTempDir();
+  fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=urthreads-worker\n", "utf8");
+  fs.writeFileSync(
+    path.join(tempDir, "wrangler.toml"),
+    'name = "urthreads-worker"\n\n[[d1_databases]]\ndatabase_name = "threads-db"\n',
+    "utf8"
+  );
+  fs.mkdirSync(path.join(tempDir, "dist"));
+  const calls = [];
+  const { writes, output } = makeOutput();
+
+  await main(["clean-all"], {
+    cwd: tempDir,
+    output,
+    prompter: makePrompter([true, "delete urthreads-worker", true, "nope"]),
+    runner: (command, args) => {
+      calls.push({ command, args });
+      return { status: 0 };
+    },
+  });
+
+  assert.deepStrictEqual(calls, [
+    { command: "wrangler", args: ["delete", "urthreads-worker"] },
+  ]);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, "wrangler.toml")), true);
+  assert.strictEqual(fs.existsSync(path.join(tempDir, "dist")), true);
+  assert.ok(writes.join("").includes("D1 database deletion cancelled."));
+  assert.ok(writes.join("").includes("Clean-all cancelled. Local files were left unchanged."));
+  assert.ok(writes.join("").includes("urthreads backout clean-all --yes"));
+  assert.ok(!writes.join("").includes("urthreads backout delete-worker --name urthreads-worker"));
+  assert.ok(writes.join("").includes("wrangler d1 delete threads-db"));
 });
 
 test("infers worker name from wrangler toml before env file", () => {

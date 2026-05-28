@@ -22,6 +22,7 @@ node --test
 - `admin-key.test.js`: admin key generation, expiration parsing, `.env` updates, and clipboard-safe output.
 - `admin-session.test.js`: dashboard session TTL parsing and `.env` updates.
 - `cli.test.js`: moderation and D1 SQL command builders.
+- `dashboard-config.test.js`: static dashboard installation, saved path config, and refresh behavior.
 - `env-config.test.js`: allowed origin merging, wildcard removal, sensitive output hiding, and `.env` opening behavior.
 - `example-config.test.js`: generated browser-safe Worker config for static HTML examples.
 - `setup-env.test.js`: Worker URL normalization, endpoint generation, origin list cleanup, Wrangler D1 creation parsing, hidden prompts, and `.env` generation.

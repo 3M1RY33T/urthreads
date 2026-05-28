@@ -49,11 +49,6 @@ function sqlString(value) {
   return `'${String(value || "").replace(/'/g, "''")}'`;
 }
 
-function sqlNullableString(value) {
-  const text = String(value || "").trim();
-  return text ? sqlString(text) : "NULL";
-}
-
 function requireId(value, label = "ID") {
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) {
@@ -185,53 +180,6 @@ function getSqlGetComment(id) {
   WHERE id = ${id}`;
 }
 
-function getSqlCreateComment({
-  postPath,
-  pageUrl,
-  pageTitle,
-  authorName,
-  content,
-  email = "",
-  parentId = null,
-  status = "pending",
-}) {
-  const parentValue = parentId ? Number(parentId) : null;
-
-  return `INSERT INTO post_comments (
-    path,
-    parent_id,
-    page_url,
-    page_title,
-    author_name,
-    author_email,
-    author_website,
-    content,
-    status,
-    created_at,
-    updated_at
-  )
-  VALUES (
-    ${sqlString(postPath)},
-    ${parentValue ? parentValue : "NULL"},
-    ${sqlString(pageUrl)},
-    ${sqlString(pageTitle)},
-    ${sqlString(authorName)},
-    ${sqlNullableString(email)},
-    NULL,
-    ${sqlString(content)},
-    ${sqlString(status)},
-    CURRENT_TIMESTAMP,
-    CURRENT_TIMESTAMP
-  )`;
-}
-
-function getSqlUpdateComment(id, content) {
-  return `UPDATE post_comments
-    SET content = ${sqlString(content)},
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ${id}`;
-}
-
 function getSqlSetCommentStatus(id, status) {
   return `UPDATE post_comments
     SET status = ${sqlString(status)},
@@ -262,22 +210,6 @@ function getSqlGetLike(postPath) {
   return `SELECT path, count, updated_at
   FROM post_likes
   WHERE path = ${sqlString(postPath)}`;
-}
-
-function getSqlSetLike(postPath, count) {
-  return `INSERT INTO post_likes (path, count, updated_at)
-  VALUES (${sqlString(postPath)}, ${count}, CURRENT_TIMESTAMP)
-  ON CONFLICT(path) DO UPDATE SET
-    count = ${count},
-    updated_at = CURRENT_TIMESTAMP`;
-}
-
-function getSqlIncrementLike(postPath, amount = 1) {
-  return `INSERT INTO post_likes (path, count, updated_at)
-  VALUES (${sqlString(postPath)}, ${amount}, CURRENT_TIMESTAMP)
-  ON CONFLICT(path) DO UPDATE SET
-    count = count + ${amount},
-    updated_at = CURRENT_TIMESTAMP`;
 }
 
 function getSqlDeleteLike(postPath) {
@@ -345,10 +277,6 @@ COMMANDS:
   list-comments [status] [path]
                        List comments by status/path
   get-comment <id>     Show a full comment row
-  create-comment <path> <page-url> <title> <author> <content> [email] [parent-id]
-                       Create a comment row
-  update-comment <id> <content>
-                       Update comment content
   set-comment-status <id> <pending|approved|rejected>
                        Set comment status
   delete-comment <id>  Delete a comment row
@@ -358,10 +286,6 @@ COMMANDS:
   # Likes
   list-likes [limit]   List top liked paths
   get-like <path>      Show likes for a path
-  set-like <path> <count>
-                       Create/update like count for a path
-  increment-like <path> [amount]
-                       Increment like count for a path
   delete-like <path>   Delete likes for a path
   reset-likes          Delete all path likes
 
@@ -454,32 +378,6 @@ async function main(argv = process.argv.slice(2), options = {}) {
       description = `Getting comment #${params[0]}...`;
       break;
 
-    case "create-comment": {
-      const [postPath, pageUrl, pageTitle, authorName, content, email, parentId] = params;
-      if (!postPath || !pageUrl || !pageTitle || !authorName || !content) {
-        error(`Usage: ${commandName} create-comment <path> <page-url> <title> <author> <content> [email] [parent-id]`);
-      }
-      sqlQuery = getSqlCreateComment({
-        postPath: requirePath(postPath),
-        pageUrl,
-        pageTitle,
-        authorName,
-        content,
-        email,
-        parentId: parentId ? requireId(parentId, "Parent comment ID") : null,
-      });
-      description = `Creating comment for ${postPath}...`;
-      break;
-    }
-
-    case "update-comment":
-      if (!params[1]) {
-        error(`Usage: ${commandName} update-comment <id> <content>`);
-      }
-      sqlQuery = getSqlUpdateComment(requireId(params[0], "Comment ID"), params[1]);
-      description = `Updating comment #${params[0]}...`;
-      break;
-
     case "set-comment-status": {
       if (!params[1]) {
         error(`Usage: ${commandName} set-comment-status <id> <pending|approved|rejected>`);
@@ -511,22 +409,6 @@ async function main(argv = process.argv.slice(2), options = {}) {
     case "get-like":
       sqlQuery = getSqlGetLike(requirePath(params[0]));
       description = `Getting likes for ${params[0]}...`;
-      break;
-
-    case "set-like":
-      if (!params[1]) {
-        error(`Usage: ${commandName} set-like <path> <count>`);
-      }
-      sqlQuery = getSqlSetLike(requirePath(params[0]), requireCount(params[1]));
-      description = `Setting likes for ${params[0]}...`;
-      break;
-
-    case "increment-like":
-      sqlQuery = getSqlIncrementLike(
-        requirePath(params[0]),
-        params[1] ? requireCount(params[1], "Amount") : 1
-      );
-      description = `Incrementing likes for ${params[0]}...`;
       break;
 
     case "delete-like":
@@ -592,15 +474,11 @@ module.exports = {
   getSqlApprovedForPath,
   getSqlListComments,
   getSqlGetComment,
-  getSqlCreateComment,
-  getSqlUpdateComment,
   getSqlSetCommentStatus,
   getSqlDeleteComment,
   getSqlResetCommentLikes,
   getSqlListLikes,
   getSqlGetLike,
-  getSqlSetLike,
-  getSqlIncrementLike,
   getSqlDeleteLike,
   getSqlResetLikes,
   getSqlStats,

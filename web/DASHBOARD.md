@@ -17,18 +17,21 @@ Open `index.html` in a browser or serve it from a static host. The dashboard tal
 
 ## Recommended Hosting
 
-For production, host the static dashboard on the same site you use for your public content, usually under `/urthreads/`:
+For production, host the static dashboard on your site, usually under `/urthreads/`:
 
 ```text
 Dashboard UI: https://www.myblog.com/urthreads/
 Worker API:   https://urthreads-worker.your-subdomain.workers.dev
 ```
 
-Copy the contents of `web/` into your site's `/urthreads/` output directory. The hosted path should serve:
+Build it into your static output directory:
 
-- `https://www.myblog.com/urthreads/index.html`
-- `https://www.myblog.com/urthreads/dashboard.js`
-- `https://www.myblog.com/urthreads/styles.css`
+```bash
+urthreads dashboard set ./public urthreads
+urthreads dashboard build
+```
+
+The hosted path should serve `index.html`, `dashboard.js`, and `styles.css` from `/urthreads/`. `dashboard build` refreshes the saved install after package updates.
 
 When the dashboard opens, enter the Worker API origin, such as:
 
@@ -36,7 +39,7 @@ When the dashboard opens, enter the Worker API origin, such as:
 https://urthreads-worker.your-subdomain.workers.dev
 ```
 
-The Worker uses this base URL to call protected admin endpoints such as `/admin/session`, `/admin/summary`, `/admin/comments`, and `/admin/likes`.
+The dashboard uses this base URL to call protected admin endpoints such as `/admin/session`, `/admin/summary`, `/admin/comments`, and `/admin/likes`.
 
 Add the dashboard origin to `ALLOWED_ORIGINS`. The origin is only scheme plus host plus optional port; it does not include `/urthreads/`.
 

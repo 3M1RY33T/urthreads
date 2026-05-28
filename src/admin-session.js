@@ -4,10 +4,13 @@
  * Configure the dashboard admin session lifetime in .env.
  */
 
+const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { spawnSync } = require("child_process");
 const { writeEnvFile } = require("./admin-key");
 const { formatHelp } = require("./help-format");
+const { updateWranglerToml } = require("./wrangler-config");
 
 const ADMIN_SESSION_TTL_SECONDS_NAME = "ADMIN_SESSION_TTL_SECONDS";
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60;
@@ -58,6 +61,7 @@ function parseArgs(argv = []) {
     envPath: ".env",
     help: false,
     ttl: "",
+    wranglerPath: "wrangler.toml",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -70,6 +74,13 @@ function parseArgs(argv = []) {
       index += 1;
     } else if (arg.startsWith("--env=")) {
       result.envPath = arg.slice("--env=".length);
+    } else if (arg === "--toml" || arg === "--wrangler") {
+      result.wranglerPath = argv[index + 1] || result.wranglerPath;
+      index += 1;
+    } else if (arg.startsWith("--toml=")) {
+      result.wranglerPath = arg.slice("--toml=".length);
+    } else if (arg.startsWith("--wrangler=")) {
+      result.wranglerPath = arg.slice("--wrangler=".length);
     } else if (arg === "--ttl") {
       result.ttl = argv[index + 1] || "";
       index += 1;
@@ -96,8 +107,16 @@ function createPrompter(input = process.stdin, output = process.stdout) {
     });
   }
 
+  async function confirm(question, defaultValue = true) {
+    const label = defaultValue ? "Y/n" : "y/N";
+    const answer = String(await ask(`${question} [${label}]`)).toLowerCase();
+    if (!answer) return defaultValue;
+    return answer === "y" || answer === "yes";
+  }
+
   return {
     ask,
+    confirm,
     close: () => rl.close(),
   };
 }
@@ -122,6 +141,92 @@ async function selectSessionTtl(prompter, output = process.stdout) {
   return parseSessionTtlValue(choice);
 }
 
+function commandSucceeded(result) {
+  return !result?.error && (typeof result?.status !== "number" || result.status === 0);
+}
+
+function getCommandOutput(result) {
+  return `${result?.stdout || ""}\n${result?.stderr || ""}`.trim();
+}
+
+function summarizeWranglerFailure(output) {
+  const text = String(output || "").toLowerCase();
+  if (text.includes("not authenticated") || text.includes("cloudflare_api_token")) {
+    return "Wrangler is not authenticated for this command.";
+  }
+  if (text.includes("permission") || text.includes("forbidden") || text.includes("unauthorized")) {
+    return "Wrangler does not have permission to complete this command.";
+  }
+  return "Wrangler could not complete the command.";
+}
+
+function displayLocalPath(filePath, fallbackName) {
+  const relative = path.relative(process.cwd(), filePath);
+  if (!relative) return fallbackName;
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return path.basename(filePath) || fallbackName;
+  }
+  return relative;
+}
+
+function updateAdminSessionTtlInWranglerToml(wranglerPath, ttlSeconds) {
+  if (!fs.existsSync(wranglerPath)) {
+    return {
+      ok: false,
+      missing: true,
+    };
+  }
+
+  let content = fs.readFileSync(wranglerPath, "utf8");
+  for (const envName of ["default", "production", "staging"]) {
+    content = updateWranglerToml(content, ADMIN_SESSION_TTL_SECONDS_NAME, String(ttlSeconds), envName);
+  }
+  fs.writeFileSync(wranglerPath, content, "utf8");
+
+  return {
+    ok: true,
+    missing: false,
+  };
+}
+
+function deployWorker(options = {}) {
+  const runner = options.runner || spawnSync;
+  const result = runner("wrangler", ["deploy"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+
+  return {
+    ok: commandSucceeded(result),
+    output: getCommandOutput(result),
+  };
+}
+
+async function offerWorkerDeploy(prompter, output = process.stdout, options = {}) {
+  if (options.useWrangler === false || !prompter?.confirm) return false;
+
+  const shouldDeploy = await prompter.confirm(
+    "Deploy Worker now so the new session lifetime is active?",
+    false
+  );
+  if (!shouldDeploy) return false;
+
+  output.write("Deploying Worker...\n");
+  const deployResult = deployWorker(options);
+  if (deployResult.ok) {
+    output.write("Deployed Worker.\n");
+    return true;
+  }
+
+  output.write("Worker deployment did not complete.\n");
+  output.write(`${summarizeWranglerFailure(deployResult.output)}\n`);
+  if (deployResult.output) {
+    output.write("Wrangler detail:\n");
+    output.write(`${deployResult.output}\n`);
+  }
+  return false;
+}
+
 function showHelp(commandName = "node src/admin-session.js") {
   process.stdout.write(formatHelp(`
 urthreads Admin Session Config
@@ -130,11 +235,12 @@ USAGE:
   ${commandName}
   ${commandName} --ttl <seconds|15m|30m|1h>
   ${commandName} --env ./path/to/.env --ttl 30m
+  ${commandName} --toml ./wrangler.toml --ttl 30m
 
 DESCRIPTION:
-  Writes ADMIN_SESSION_TTL_SECONDS to .env. This controls how long dashboard
-  admin sessions last after the admin key is submitted to /admin/session.
-  Values are limited to 15 minutes through 1 hour.
+  Writes ADMIN_SESSION_TTL_SECONDS to .env and wrangler.toml when available.
+  This controls how long dashboard admin sessions last after the admin key is
+  submitted to /admin/session. Values are limited to 15 minutes through 1 hour.
 
 `));
 }
@@ -149,25 +255,48 @@ async function main(argv = process.argv.slice(2), options = {}) {
     return;
   }
 
-  const prompter = options.prompter || createPrompter();
+  const shouldClosePrompter = !Object.prototype.hasOwnProperty.call(options, "prompter");
+  const prompter = shouldClosePrompter
+    ? createPrompter()
+    : options.prompter;
 
   try {
     const ttlSeconds = args.ttl
       ? parseSessionTtlValue(args.ttl)
       : await selectSessionTtl(prompter, output);
     const envPath = path.resolve(process.cwd(), args.envPath);
+    const wranglerPath = path.resolve(process.cwd(), args.wranglerPath);
+    const wranglerDisplayPath = displayLocalPath(wranglerPath, "wrangler.toml");
 
     writeEnvFile(envPath, {
       [ADMIN_SESSION_TTL_SECONDS_NAME]: String(ttlSeconds),
     });
 
     output.write(`\nUpdated ${path.relative(process.cwd(), envPath) || ".env"}\n`);
+    const wranglerUpdate = updateAdminSessionTtlInWranglerToml(wranglerPath, ttlSeconds);
+    if (wranglerUpdate.ok) {
+      output.write(`Updated ${wranglerDisplayPath}\n`);
+    } else {
+      output.write(`${wranglerDisplayPath} was not found, so ${ADMIN_SESSION_TTL_SECONDS_NAME} was not updated there.\n`);
+    }
     output.write(`${ADMIN_SESSION_TTL_SECONDS_NAME}=${ttlSeconds}\n\n`);
+
+    const deployed = wranglerUpdate.ok
+      ? await offerWorkerDeploy(prompter, output, options)
+      : false;
+
+    output.write("\n");
     output.write("Next steps:\n");
-    output.write("  1. Add/update ADMIN_SESSION_TTL_SECONDS in your Worker environment.\n");
-    output.write("  2. Redeploy the Worker so the new session lifetime is active.\n\n");
+    if (!wranglerUpdate.ok) {
+      output.write(`  1. Update the Worker session TTL: urthreads wrangler set ${ADMIN_SESSION_TTL_SECONDS_NAME} ${ttlSeconds}\n`);
+      output.write("  2. Deploy the Worker: wrangler deploy\n\n");
+    } else if (!deployed) {
+      output.write("  1. Deploy the Worker: wrangler deploy\n\n");
+    } else {
+      output.write("  1. Open the dashboard and sign in again when you are ready.\n\n");
+    }
   } finally {
-    if (!options.prompter) {
+    if (shouldClosePrompter) {
       prompter.close();
     }
   }
@@ -185,8 +314,10 @@ module.exports = {
   DEFAULT_SESSION_TTL_SECONDS,
   MAX_SESSION_TTL_SECONDS,
   MIN_SESSION_TTL_SECONDS,
+  deployWorker,
   main,
   parseArgs,
   parseSessionTtlValue,
+  updateAdminSessionTtlInWranglerToml,
   showHelp,
 };
