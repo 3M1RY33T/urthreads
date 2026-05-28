@@ -96,9 +96,9 @@ test("builds env content with derived client endpoints", () => {
     databaseId: "db-id",
     workerName: "worker",
     workerUrl: "https://worker.example.workers.dev/",
-    allowedOrigins: "https://example.com,http://localhost:8000,http://[::1]:8000",
+    allowedOrigins: "http://localhost:8000,http://[::1]:8000",
     allowedOriginsStaging: "http://localhost:8787,http://[::1]:8000",
-    allowedOriginsProd: "https://example.com",
+    allowedOriginsProd: "http://localhost:8000,http://[::1]:8000",
     maxCommentsPerPost: "50",
   });
 
@@ -106,11 +106,20 @@ test("builds env content with derived client endpoints", () => {
   assert.ok(content.includes("D1_DATABASE_NAME=db"));
   assert.ok(content.includes("LIKES_ENDPOINT=https://worker.example.workers.dev/likes"));
   assert.ok(content.includes("COMMENTS_ENDPOINT=https://worker.example.workers.dev/comments"));
-  assert.ok(content.includes("ALLOWED_ORIGINS_PROD=https://example.com"));
+  assert.ok(content.includes("ALLOWED_ORIGINS_PROD=http://localhost:8000,http://[::1]:8000"));
   assert.ok(content.includes("http://[::1]:8000"));
   assert.ok(content.includes("ADMIN_API_KEY="));
   assert.ok(content.includes("ADMIN_API_KEY_EXPIRES_AT="));
   assert.ok(content.includes("MAX_COMMENTS_PER_POST=50"));
+});
+
+test("setup defaults allowed origins to localhost-only values", () => {
+  const content = buildEnvContent({});
+
+  assert.ok(content.includes("ALLOWED_ORIGINS=http://localhost:8000,http://[::1]:8000"));
+  assert.ok(content.includes("ALLOWED_ORIGINS_STAGING=http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787"));
+  assert.ok(content.includes("ALLOWED_ORIGINS_PROD=http://localhost:8000,http://[::1]:8000"));
+  assert.ok(!content.includes("https://example.com"));
 });
 
 test("collects sensitive setup values through hidden prompts", async () => {

@@ -96,12 +96,13 @@ Leave `WORKER_URL` blank until after deployment if you do not know the final `wo
 ### CORS Origins
 
 ```env
-ALLOWED_ORIGINS=https://example.com,https://www.example.com,http://localhost:8000,http://[::1]:8000
-ALLOWED_ORIGINS_STAGING=https://staging.example.com,http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787
-ALLOWED_ORIGINS_PROD=https://example.com,https://www.example.com
+ALLOWED_ORIGINS=http://localhost:8000,http://[::1]:8000
+ALLOWED_ORIGINS_STAGING=http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787
+ALLOWED_ORIGINS_PROD=http://localhost:8000,http://[::1]:8000
 ```
 
 Use exact origins. Do not use `*` for dashboard deployments. Browser cookie sessions need credentialed CORS, and credentialed CORS requires a specific `Access-Control-Allow-Origin` value.
+Setup defaults are localhost-only for safety. Add your deployed website or dashboard origin before production use.
 
 If your dashboard is hosted at:
 
@@ -123,15 +124,18 @@ Add origins with:
 urthreads env add-origin http://localhost:8000
 urthreads env add-origin http://[::1]:8000
 urthreads env add-origin https://mysite.com https://www.mysite.com --target prod
+urthreads env add-origin https://dashboard.mysite.com --staging --production
 ```
 
 The first real origin replaces `*`. Later origins are appended without duplicates.
+Origin changes are also synced to `wrangler.toml` when it exists.
 
 Targets:
 
 - `default` or `local`: updates `ALLOWED_ORIGINS`.
 - `staging`: updates `ALLOWED_ORIGINS_STAGING`.
 - `prod` or `production`: updates `ALLOWED_ORIGINS_PROD`.
+- `--staging` and `--production`: update both target environment origin lists in one command.
 
 ## Client Endpoint Values
 
@@ -158,6 +162,28 @@ urthreads env copy-admin-key
 urthreads env copy D1_DATABASE_ID
 urthreads env copy CLOUDFLARE_ACCOUNT_ID
 ```
+
+## Hosted Dashboard Path
+
+```env
+DASHBOARD_LOCAL_PATH=/absolute/path/to/site/public
+DASHBOARD_ENDPOINT=urthreads
+```
+
+Configure and build the static dashboard once:
+
+```bash
+urthreads dashboard set ./public urthreads
+```
+
+This writes the two values above to `.env`, copies the dashboard files to `./public/urthreads/`, and copies the package assets to `./public/assets/`. After upgrading `urthreads`, refresh the same hosted dashboard from the saved path:
+
+```bash
+urthreads dashboard build
+```
+
+If those values are not set yet, `urthreads dashboard build` prompts for them, saves them to `.env`, and then builds the dashboard.
+If the chosen static output path does not exist, the command asks before creating it.
 
 ## Admin Dashboard Values
 
@@ -195,9 +221,10 @@ Configure dashboard session lifetime:
 ```bash
 urthreads admin-session --ttl 1h
 urthreads admin-session --ttl 30m
+urthreads admin-session --ttl 30m --toml ./wrangler.toml
 ```
 
-`ADMIN_SESSION_TTL_SECONDS` is clamped between 900 and 3600 seconds by the Worker.
+`ADMIN_SESSION_TTL_SECONDS` is clamped between 900 and 3600 seconds by the Worker. The command updates `.env`, updates `wrangler.toml` when available, and offers to deploy the Worker so the new lifetime takes effect.
 
 ## Optional Runtime Values
 
@@ -251,13 +278,13 @@ urthreads delete-worker --name urthreads-worker
 urthreads delete-worker --name urthreads-worker --delete-database
 ```
 
-- `clean` is the recommended everyday reset. It removes caches and local working files while keeping your D1 database and configuration files.
-- `clean-all` is the recommended full setup reset. It removes caches, working files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first.
+- `clean` is the recommended everyday reset. It removes caches, local working files, and configured hosted dashboard files while keeping your D1 database and configuration files.
+- `clean-all` is the recommended full setup reset. It removes caches, working files, configured hosted dashboard files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first. Dashboard cleanup removes copied urthreads files only; it leaves directories and unrelated site files in place.
 - `clean-cache` removes local cache directories such as `.wrangler`, `.mf`, and `node_modules/.cache`.
 - `clean-files` removes generated local environment files such as `.env`, `wrangler.toml`, and `.dev.vars`. Add `--cache` to include caches too.
 - `clean-env` removes `.env` and `wrangler.toml`, and asks whether to delete the deployed Worker first.
 - When a Worker is being deleted, the CLI also asks whether to delete the inferred D1 database. Pass `--delete-database` only when you intentionally want to remove stored likes, comments, and moderation data. Pass `--database <name>` if the database name cannot be inferred.
-- `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends cleaning local environment, cache, and working files that refer to the deleted Worker. Pass `--name <worker>` if the Worker name cannot be inferred from `wrangler.toml` or `.env`, or `--keep-local` if you intentionally want to leave local setup files in place.
+- `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends cleaning local environment, cache, dashboard files, and working files that refer to the deleted Worker. Pass `--name <worker>` if the Worker name cannot be inferred from `wrangler.toml` or `.env`, or `--keep-local` if you intentionally want to leave local setup files in place.
 
 Prefer `clean` and `clean-all` unless you need one narrow operation. Add `--dry-run` to preview local cleanup or Worker deletion commands without removing anything. Add `--yes` only for automation where you intentionally want to skip interactive prompts.
 

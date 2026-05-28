@@ -8,6 +8,7 @@ const moderationCli = require("./cli");
 const adminKeyCli = require("./admin-key");
 const adminSessionCli = require("./admin-session");
 const envConfigCli = require("./env-config");
+const dashboardConfigCli = require("./dashboard-config");
 const setupEnvCli = require("./setup-env");
 const wranglerConfigCli = require("./wrangler-config");
 const backoutCli = require("./backout");
@@ -20,15 +21,11 @@ const MODERATION_COMMANDS = new Set([
   "list-approved",
   "list-comments",
   "get-comment",
-  "create-comment",
-  "update-comment",
   "set-comment-status",
   "delete-comment",
   "reset-comment-likes",
   "list-likes",
   "get-like",
-  "set-like",
-  "increment-like",
   "delete-like",
   "reset-likes",
   "stats",
@@ -60,6 +57,12 @@ const ENV_COMMANDS = new Set([
   "origins",
   "allowed-origin",
   "allowed-origins",
+]);
+
+const DASHBOARD_COMMANDS = new Set([
+  "dashboard",
+  "dashboard-build",
+  "dashboard-update",
 ]);
 
 const WRANGLER_COMMANDS = new Set([
@@ -97,6 +100,7 @@ SETUP COMMANDS:
   env copy-admin-key   Copy ADMIN_API_KEY to clipboard
   env copy-worker-url  Copy WORKER_URL to clipboard
   env open             Open .env in the system text viewer
+  dashboard            Build/update the static dashboard in your site
   admin-key            Generate/rotate ADMIN_API_KEY in .env
   admin-session        Configure ADMIN_SESSION_TTL_SECONDS in .env
   clean                Remove caches and local working files
@@ -110,16 +114,12 @@ COMMENT MANAGEMENT:
   reject <id>          Reject a comment by ID
   list-approved <path> List approved comments for a post path
   list-comments        List comments by status/path
-  create-comment       Create a comment
-  update-comment       Update comment content
   delete-comment       Delete a comment
   reset-comment-likes  Reset likes on a comment
 
 LIKE MANAGEMENT:
   list-likes           List top liked paths
   get-like <path>      Show likes for a path
-  set-like <path> <n>  Create/update like count for a path
-  increment-like       Increment like count for a path
   delete-like          Delete likes for a path
   reset-likes          Delete all path likes
 
@@ -169,6 +169,14 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  if (DASHBOARD_COMMANDS.has(command)) {
+    const dashboardArgs = command === "dashboard"
+      ? argv.slice(1)
+      : [command === "dashboard-build" ? "build" : "update", ...argv.slice(1)];
+    await dashboardConfigCli.main(dashboardArgs, { commandName: command === "dashboard" ? "urthreads dashboard" : `urthreads ${command}` });
+    return;
+  }
+
   if (WRANGLER_COMMANDS.has(command)) {
     const wranglerArgs = command === "wrangler-init" ? ["init", ...argv.slice(1)] : argv.slice(1);
     await wranglerConfigCli.main(wranglerArgs, { commandName: command === "wrangler" ? "urthreads wrangler" : `urthreads ${command}` });
@@ -210,6 +218,7 @@ if (require.main === module) {
 module.exports = {
   ADMIN_KEY_COMMANDS,
   ADMIN_SESSION_COMMANDS,
+  DASHBOARD_COMMANDS,
   ENV_COMMANDS,
   MODERATION_COMMANDS,
   SETUP_COMMANDS,
