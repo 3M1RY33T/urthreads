@@ -9,6 +9,11 @@ const path = require("path");
 const readline = require("readline");
 const { spawnSync } = require("child_process");
 const { readEnvValues } = require("./env-config");
+const {
+  DASHBOARD_ENDPOINT_KEY,
+  DASHBOARD_LOCAL_PATH_KEY,
+  normalizeDashboardEndpoint,
+} = require("./dashboard-config");
 const { getWranglerValue, normalizeEnvName } = require("./wrangler-config");
 const { formatHelp } = require("./help-format");
 
@@ -32,6 +37,13 @@ const CACHE_PATHS = [
   path.join("node_modules", ".cache"),
   path.join("web", ".cache"),
   path.join("examples", ".cache"),
+];
+const DASHBOARD_SOURCE_DIR = path.resolve(__dirname, "..", "web");
+const DASHBOARD_ASSET_PATHS = [
+  path.join("assets", "img", "urthreads.png"),
+  path.join("assets", "svg", "cloudflare.svg"),
+  path.join("assets", "svg", "github.svg"),
+  path.join("assets", "svg", "npm.svg"),
 ];
 
 function createPrompter(input = process.stdin, output = process.stdout) {
@@ -153,6 +165,44 @@ function existingPaths(paths, cwd = process.cwd()) {
     .filter((filePath) => fs.existsSync(filePath));
 }
 
+function listFilesRecursive(rootDir, baseDir = rootDir) {
+  if (!fs.existsSync(rootDir)) return [];
+  const files = [];
+  for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    const entryPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFilesRecursive(entryPath, baseDir));
+    } else if (entry.isFile()) {
+      files.push(path.relative(baseDir, entryPath));
+    }
+  }
+  return files;
+}
+
+function buildDashboardCleanTargets(args, cwd = process.cwd()) {
+  const envPath = path.resolve(cwd, args.envPath);
+  const values = readEnvValues(envPath);
+  const localPath = String(values[DASHBOARD_LOCAL_PATH_KEY] || "").trim();
+  const endpointValue = String(values[DASHBOARD_ENDPOINT_KEY] || "").trim();
+  if (!localPath || !endpointValue) return [];
+
+  let endpoint;
+  try {
+    endpoint = normalizeDashboardEndpoint(endpointValue);
+  } catch (error) {
+    return [];
+  }
+
+  const localRoot = path.resolve(cwd, localPath);
+  const dashboardPath = path.resolve(localRoot, endpoint);
+  const targets = listFilesRecursive(DASHBOARD_SOURCE_DIR)
+    .map((filePath) => path.join(dashboardPath, filePath));
+  for (const assetPath of DASHBOARD_ASSET_PATHS) {
+    targets.push(path.join(localRoot, assetPath));
+  }
+  return targets;
+}
+
 function removePaths(paths, options = {}) {
   const cwd = options.cwd || process.cwd();
   const output = options.output || process.stdout;
@@ -184,15 +234,18 @@ function buildCleanTargets(args, cwd = process.cwd()) {
 
   if (command === "clean") {
     targets.push(...LOCAL_WORKING_FILES, ...CACHE_PATHS);
+    targets.push(...buildDashboardCleanTargets(args, cwd));
   } else if (command === "clean-cache") {
     targets.push(...CACHE_PATHS);
   } else if (command === "clean-env") {
     targets.push(args.envPath, args.wranglerPath);
   } else if (command === "clean-all") {
     targets.push(...LOCAL_WORKING_FILES, ...CACHE_PATHS, ...ENVIRONMENT_FILES, args.envPath, args.wranglerPath);
+    targets.push(...buildDashboardCleanTargets(args, cwd));
   } else {
     targets.push(...ENVIRONMENT_FILES);
     if (args.includeCache) targets.push(...CACHE_PATHS);
+    if (args.includeCache) targets.push(...buildDashboardCleanTargets(args, cwd));
   }
 
   if (args.includeEnv && !targets.includes(args.envPath)) targets.push(args.envPath);
@@ -208,6 +261,7 @@ function buildFullCleanTargets(args, cwd = process.cwd()) {
     ...CACHE_PATHS,
     args.envPath,
     args.wranglerPath,
+    ...buildDashboardCleanTargets(args, cwd),
   ];
   return existingPaths(Array.from(new Set(targets)), cwd);
 }
@@ -480,8 +534,8 @@ DESCRIPTION:
   confirmation unless --yes is provided.
 
 COMMANDS:
-  clean             Remove caches and local working files, keeping database and configuration
-  clean-all         Remove caches, working files, and environment files; optionally delete Worker
+  clean             Remove caches, local working files, and hosted dashboard files, keeping database and configuration
+  clean-all         Remove caches, working files, hosted dashboard files, and environment files; optionally delete Worker
   clean-files       Remove local generated environment files: .env, wrangler.toml, .dev.vars
   clean-cache       Remove local cache directories such as .wrangler and node_modules/.cache
   delete-worker     Delete the deployed Cloudflare Worker, optionally delete D1, then recommend full local cleanup
@@ -547,8 +601,10 @@ if (require.main === module) {
 
 module.exports = {
   CACHE_PATHS,
+  DASHBOARD_ASSET_PATHS,
   ENVIRONMENT_FILES,
   LOCAL_WORKING_FILES,
+  buildDashboardCleanTargets,
   buildCleanTargets,
   buildFullCleanTargets,
   cleanLocalState,

@@ -278,13 +278,13 @@ urthreads delete-worker --name urthreads-worker
 urthreads delete-worker --name urthreads-worker --delete-database
 ```
 
-- `clean` is the recommended everyday reset. It removes caches and local working files while keeping your D1 database and configuration files.
-- `clean-all` is the recommended full setup reset. It removes caches, working files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first.
+- `clean` is the recommended everyday reset. It removes caches, local working files, and configured hosted dashboard files while keeping your D1 database and configuration files.
+- `clean-all` is the recommended full setup reset. It removes caches, working files, configured hosted dashboard files, `.env`, `wrangler.toml`, and `.dev.vars`, and asks whether to delete the deployed Worker first. Dashboard cleanup removes copied urthreads files only; it leaves directories and unrelated site files in place.
 - `clean-cache` removes local cache directories such as `.wrangler`, `.mf`, and `node_modules/.cache`.
 - `clean-files` removes generated local environment files such as `.env`, `wrangler.toml`, and `.dev.vars`. Add `--cache` to include caches too.
 - `clean-env` removes `.env` and `wrangler.toml`, and asks whether to delete the deployed Worker first.
 - When a Worker is being deleted, the CLI also asks whether to delete the inferred D1 database. Pass `--delete-database` only when you intentionally want to remove stored likes, comments, and moderation data. Pass `--database <name>` if the database name cannot be inferred.
-- `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends cleaning local environment, cache, and working files that refer to the deleted Worker. Pass `--name <worker>` if the Worker name cannot be inferred from `wrangler.toml` or `.env`, or `--keep-local` if you intentionally want to leave local setup files in place.
+- `delete-worker` runs `wrangler delete` only after a warning and confirmation, then recommends cleaning local environment, cache, dashboard files, and working files that refer to the deleted Worker. Pass `--name <worker>` if the Worker name cannot be inferred from `wrangler.toml` or `.env`, or `--keep-local` if you intentionally want to leave local setup files in place.
 
 Prefer `clean` and `clean-all` unless you need one narrow operation. Add `--dry-run` to preview local cleanup or Worker deletion commands without removing anything. Add `--yes` only for automation where you intentionally want to skip interactive prompts.
 

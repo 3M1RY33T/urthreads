@@ -117,6 +117,44 @@ test("clean keeps environment files and removes caches and working files", async
   assert.strictEqual(fs.existsSync(path.join(tempDir, "coverage")), false);
 });
 
+test("clean removes configured dashboard working files", async () => {
+  const tempDir = makeTempDir();
+  const publicPath = path.join(tempDir, "public");
+  fs.writeFileSync(
+    path.join(tempDir, ".env"),
+    `DASHBOARD_LOCAL_PATH=${publicPath}\nDASHBOARD_ENDPOINT=urthreads\n`,
+    "utf8"
+  );
+  fs.mkdirSync(path.join(publicPath, "urthreads"), { recursive: true });
+  fs.mkdirSync(path.join(publicPath, "assets", "img"), { recursive: true });
+  fs.mkdirSync(path.join(publicPath, "assets", "svg"), { recursive: true });
+  fs.writeFileSync(path.join(publicPath, "urthreads", "index.html"), "dashboard", "utf8");
+  fs.writeFileSync(path.join(publicPath, "urthreads", "dashboard.js"), "dashboard js", "utf8");
+  fs.writeFileSync(path.join(publicPath, "urthreads", "styles.css"), "dashboard css", "utf8");
+  fs.writeFileSync(path.join(publicPath, "urthreads", "custom.txt"), "user dashboard note", "utf8");
+  fs.writeFileSync(path.join(publicPath, "assets", "img", "urthreads.png"), "image", "utf8");
+  fs.writeFileSync(path.join(publicPath, "assets", "svg", "cloudflare.svg"), "svg", "utf8");
+  fs.writeFileSync(path.join(publicPath, "assets", "keep.txt"), "user asset", "utf8");
+
+  await main(["clean"], {
+    cwd: tempDir,
+    output: { write: () => {} },
+    prompter: makePrompter([true]),
+  });
+
+  assert.strictEqual(fs.existsSync(path.join(tempDir, ".env")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "index.html")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "dashboard.js")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "styles.css")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "urthreads", "custom.txt")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "img")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "svg")), true);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "img", "urthreads.png")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "svg", "cloudflare.svg")), false);
+  assert.strictEqual(fs.existsSync(path.join(publicPath, "assets", "keep.txt")), true);
+});
+
 test("clean-all removes caches, working files, and environment files", async () => {
   const tempDir = makeTempDir();
   fs.writeFileSync(path.join(tempDir, ".env"), "WORKER_NAME=urthreads-worker\n", "utf8");
