@@ -8,7 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const { spawnSync } = require("child_process");
-const { writeEnvFile } = require("./admin-key");
+const { redactAdminKeyCommandOutput, writeEnvFile } = require("./admin-key");
 const { formatHelp } = require("./help-format");
 const { updateWranglerToml } = require("./wrangler-config");
 
@@ -221,8 +221,8 @@ async function offerWorkerDeploy(prompter, output = process.stdout, options = {}
   output.write("Worker deployment did not complete.\n");
   output.write(`${summarizeWranglerFailure(deployResult.output)}\n`);
   if (deployResult.output) {
-    output.write("Wrangler detail:\n");
-    output.write(`${deployResult.output}\n`);
+    output.write("Sanitized Wrangler detail:\n");
+    output.write(`${redactAdminKeyCommandOutput(deployResult.output)}\n`);
   }
   return false;
 }

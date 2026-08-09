@@ -26,7 +26,7 @@ There are two places values may need to exist:
 - `.env`: used by local CLI commands, setup helpers, endpoint examples, and generated values.
 - `wrangler.toml` or Cloudflare dashboard variables/secrets: used by the deployed Worker at runtime.
 
-Updating `.env` does not automatically update a deployed Worker. After changing runtime values such as `ALLOWED_ORIGINS`, `ADMIN_SESSION_TTL_SECONDS`, or `MAX_COMMENTS_PER_POST`, make sure the deployed Worker environment is updated and redeployed.
+Updating `.env` does not automatically update a deployed Worker. After changing runtime values such as `ALLOWED_ORIGINS`, `ADMIN_SESSION_TTL_SECONDS`, `ADMIN_SESSION_COOKIE_SAMESITE`, or `MAX_COMMENTS_PER_POST`, make sure the deployed Worker environment is updated and redeployed.
 
 Use Wrangler secrets for sensitive runtime values:
 
@@ -101,7 +101,7 @@ ALLOWED_ORIGINS_STAGING=http://localhost:3000,http://localhost:8000,http://[::1]
 ALLOWED_ORIGINS_PROD=http://localhost:8000,http://[::1]:8000
 ```
 
-Use exact origins. Do not use `*` for dashboard deployments. Browser cookie sessions need credentialed CORS, and credentialed CORS requires a specific `Access-Control-Allow-Origin` value.
+Use exact origins. `*` is rejected by the Worker for dashboard deployments: the CLI refuses to set it, and the Worker never returns `Access-Control-Allow-Origin: *` on `/admin/*` even if a wildcard is configured some other way. Browser cookie sessions need credentialed CORS, and credentialed CORS requires a specific `Access-Control-Allow-Origin` value.
 Setup defaults are localhost-only for safety. Add your deployed website or dashboard origin before production use.
 
 If your dashboard is hosted at:
@@ -127,7 +127,7 @@ urthreads env add-origin https://mysite.com https://www.mysite.com --target prod
 urthreads env add-origin https://dashboard.mysite.com --staging --production
 ```
 
-The first real origin replaces `*`. Later origins are appended without duplicates.
+The first real origin replaces `*`. Later origins are appended without duplicates. The CLI refuses to set `*` as an allowed origin, and the Worker rejects wildcard CORS on admin routes.
 Origin changes are also synced to `wrangler.toml` when it exists.
 
 Targets:
@@ -226,13 +226,18 @@ urthreads admin-session --ttl 30m --toml ./wrangler.toml
 
 `ADMIN_SESSION_TTL_SECONDS` is clamped between 900 and 3600 seconds by the Worker. The command updates `.env`, updates `wrangler.toml` when available, and offers to deploy the Worker so the new lifetime takes effect.
 
+The session cookie is `__Host-urthreads_admin_session`, set with `HttpOnly`, `Secure`, and `Path=/`. `SameSite` is automatic (`Lax` for same-origin use, `None` for cross-origin dashboards) or controlled by `ADMIN_SESSION_COOKIE_SAMESITE`.
+
 ## Optional Runtime Values
 
 ```env
 MAX_COMMENTS_PER_POST=100
+ADMIN_SESSION_COOKIE_SAMESITE=
 ```
 
-This controls how many approved comments the public endpoint returns for a post.
+`MAX_COMMENTS_PER_POST` controls how many approved comments the public endpoint returns for a post. The Worker reads it as a runtime variable and validates it as a positive integer; when unset or invalid it falls back to `100`.
+
+`ADMIN_SESSION_COOKIE_SAMESITE` optionally overrides the admin session cookie's `SameSite` attribute. Accepts `Lax`, `Strict`, or `None`. When unset the Worker chooses automatically: `Lax` for same-origin dashboard use and `None` for cross-origin dashboard requests. Automatic `SameSite=None` is safe because the Worker enforces an unconditional CSRF origin check on every admin mutation, so a cross-site page cannot drive moderation actions even when the browser attaches the session cookie.
 
 ## Environment CLI
 
@@ -391,14 +396,17 @@ wrangler d1 execute your-threads-prod --remote --file=src/schema.sql --env produ
 
 ## Deployment Checklist
 
-- Set exact `ALLOWED_ORIGINS`.
+- Set exact `ALLOWED_ORIGINS` and confirm no `*` remains: the CLI refuses wildcards and the Worker rejects wildcard CORS on `/admin/*`.
 - Add the dashboard origin if you host `web/index.html`, such as `https://www.myblog.com` for `https://www.myblog.com/urthreads/`.
-- Set `ADMIN_API_KEY` as a Worker secret.
+- Confirm the SameSite/CSRF posture: the session cookie uses `SameSite=None` for cross-origin dashboards, which is safe because the Worker rejects admin mutations whose `Origin` is not allowed with `403` before validating credentials. This also blocks CORS-safelisted `text/plain` cross-site POSTs.
+- Serve the dashboard over HTTPS only; the dashboard accepts plain `http://` worker origins only for `localhost`, `127.0.0.1`, and `[::1]` development.
+- Set `ADMIN_API_KEY` as a Worker secret, give it a finite expiry, and rotate it periodically (`urthreads admin-key --expires 30d`).
 - Set D1 bindings correctly in `wrangler.toml`.
-- Initialize `src/schema.sql`.
+- Initialize `src/schema.sql` (the Worker also creates the `auth_attempts` rate-limit table at runtime if it is missing).
 - Deploy with `wrangler deploy`.
 - Test `/likes?path=/test`.
-- Open the dashboard and create a session.
+- Open the dashboard over HTTPS and create a session.
+- Review audit logs regularly, including failed-login attempts (5 failures per IP per 15 minutes triggers `429` + `Retry-After`).
 
 ## Common Configuration Issues
 

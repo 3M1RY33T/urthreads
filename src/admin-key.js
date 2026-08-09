@@ -216,7 +216,7 @@ async function selectExpiration(prompter, output = process.stdout) {
   output.write("  4. In 90 days\n");
   output.write("  5. Custom duration or ISO date\n\n");
 
-  const choice = await prompter.ask("Select an option", "1");
+  const choice = await prompter.ask("Select an option", "4");
 
   if (choice === "1") return parseExpirationValue("never");
   if (choice === "2") return parseExpirationValue("7d");
@@ -276,7 +276,7 @@ function getCommandOutput(result) {
 
 function redactAdminKeyCommandOutput(value) {
   return String(value || "")
-    .replace(/(ADMIN_API_KEY=)[^\s]+/gi, "$1<redacted>")
+    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*=)[^\s]+/gi, "$1<redacted>")
     .replace(/\/Users\/[^\s"']+/g, "<redacted-path>");
 }
 
@@ -502,7 +502,7 @@ async function main(argv = process.argv.slice(2), options = {}) {
       output.write(`  1. Store ${ADMIN_KEY_NAME} as a Worker secret: wrangler secret put ${ADMIN_KEY_NAME}\n`);
     }
     if (expiration.expiresAt && (!workerUpdate.expirationUpdated || !workerUpdate.deployed)) {
-      output.write(`  ${workerUpdate.secretStored ? "1" : "2"}. Update the Worker expiration: urthreads wrangler set ${ADMIN_KEY_EXPIRES_AT_NAME} "${expiration.expiresAt}"\n`);
+      output.write(`  ${workerUpdate.secretStored ? "1" : "2"}. Update the Worker expiration: set ${ADMIN_KEY_EXPIRES_AT_NAME} in wrangler.toml\n`);
       output.write(`  ${workerUpdate.secretStored ? "2" : "3"}. Deploy the Worker: wrangler deploy\n`);
     }
     if (workerUpdate.secretStored && (!expiration.expiresAt || workerUpdate.deployed)) {
@@ -533,6 +533,7 @@ module.exports = {
   offerAdminKeyWorkerUpdates,
   parseArgs,
   parseExpirationValue,
+  redactAdminKeyCommandOutput,
   storeAdminKeySecret,
   showHelp,
   upsertEnvVars,

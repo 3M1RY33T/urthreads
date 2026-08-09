@@ -3,7 +3,7 @@
 | [Overview](../README.md) | [Dashboard](../web/DASHBOARD.md) | [Configuration And Environment](../config/CONFIGURATION_AND_ENVIRONMENT.md) | [Program Logic](../src/PROGRAM_LOGIC.md) | *> Tests <* |
 | --- | --- | --- | --- | --- |
 
-This directory contains Node's built-in test runner coverage for the CLI and setup helpers.
+This directory contains Node's built-in test runner coverage for the CLI, setup helpers, and Worker runtime security.
 
 Run all tests:
 
@@ -28,6 +28,8 @@ node --test
 - `setup-env.test.js`: Worker URL normalization, endpoint generation, origin list cleanup, Wrangler D1 creation parsing, hidden prompts, and `.env` generation.
 - `urthreads.test.js`: top-level command routing and help output.
 - `wrangler-config.test.js`: `wrangler.toml` generation, value updates, listing, and CLI routing.
+- `worker-security.test.mjs`: unit tests for the Worker security helpers in `src/worker-security.mjs` — CORS policy (exact-origin match plus wildcard suppression on `/admin/*`), admin session token sign/verify/forgery/expiry, cookie flags (`__Host-`, `Secure`, `HttpOnly`, `Path=/`), CSRF origin allow/deny/missing, rate-limiter counting failures only, `getClientIp` reading `CF-Connecting-IP` only, and sanitized 500 responses with correlation ids.
+- `worker-admin-flow.test.mjs`: fetch-handler tests with a mocked D1 binding — admin session POST/DELETE/GET flow, the 401 gate on `/admin/*`, audit-log INSERT assertions, `/admin/worker` never leaking `ADMIN_API_KEY`/`ADMIN_SESSION_SECRET`, a `403` CSRF rejection for a cross-origin `text/plain` POST, and `429` + `Retry-After` after five failed admin keys.
 
 ## What The Tests Emphasize
 
@@ -41,7 +43,7 @@ The tests focus on code that can be verified locally without a Cloudflare accoun
 - Allowed origins are exact and wildcard values are removed when real origins are added.
 - Setup output derives endpoint URLs from the Worker URL.
 
-Worker runtime behavior is mostly exercised through focused helper tests and syntax checks. End-to-end Worker behavior still needs Wrangler/D1 integration testing because it depends on Cloudflare's runtime bindings.
+Worker runtime behavior is covered by `worker-security.test.mjs` and `worker-admin-flow.test.mjs`, which drive the Worker's fetch handler against a mocked D1 binding. Wrangler/D1 integration testing against real Cloudflare runtime bindings remains a manual pre-deploy check.
 
 ## Useful Local Checks
 

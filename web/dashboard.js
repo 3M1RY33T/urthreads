@@ -139,7 +139,14 @@
 
     try {
       const url = new URL(workerUrl);
-      return url.protocol === 'https:' || url.protocol === 'http:';
+      if (url.protocol === 'https:') {
+        return true;
+      }
+      if (url.protocol === 'http:') {
+        const hostname = url.hostname.toLowerCase();
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+      }
+      return false;
     } catch (error) {
       return false;
     }
@@ -1663,6 +1670,16 @@
       return;
     }
 
+    // Fail closed on tampered sessionStorage: a stored worker URL that fails
+    // the scheme gate is treated as no session and discarded before any
+    // network request (verifyCookieSession also gates on canAttemptCookieSession).
+    if (!canAttemptCookieSession(state.workerUrl)) {
+      clearAdminSession({ clearWorkerUrl: true });
+      setStatus('Saved worker URL is not a secure session origin.', true);
+      showAuthPrompt('That worker URL is not allowed for secure sessions. Use https, or http://localhost, http://127.0.0.1, or http://[::1] for local development.');
+      return;
+    }
+
     setSessionWorker('loading');
     setStatus('Restoring session...');
     if (await verifyCookieSession()) {
@@ -1683,6 +1700,12 @@
 
     if (!workerUrl || !adminKey) {
       setAuthStatus('Worker URL and admin key are required.', true);
+      return;
+    }
+
+    if (!canAttemptCookieSession(workerUrl)) {
+      setAuthStatus('Secure sessions require https. http is allowed only for localhost, 127.0.0.1, or [::1].', true);
+      elements.workerUrl.focus();
       return;
     }
 

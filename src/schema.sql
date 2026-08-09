@@ -69,3 +69,20 @@ CREATE INDEX IF NOT EXISTS admin_audit_logs_created_idx
 
 CREATE INDEX IF NOT EXISTS admin_audit_logs_action_created_idx
   ON admin_audit_logs (action, created_at DESC);
+
+-- Brute-force protection: failed admin login attempts keyed by client IP and
+-- credential fingerprint. One row per (bucket_key, window_start); the worker
+-- upserts the counter and lockout_until via INSERT ... ON CONFLICT and mirrors
+-- the in-memory rate limiter. Idempotent ensure* DDL also runs in the worker.
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket_key TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  lockout_until INTEGER,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (bucket_key, window_start)
+);
+
+CREATE INDEX IF NOT EXISTS auth_attempts_bucket_key_idx
+  ON auth_attempts (bucket_key, window_start);

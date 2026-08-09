@@ -155,3 +155,70 @@ test("creates wrangler toml through cli with provided config", async () => {
   assert.strictEqual(getWranglerValue(content, "name"), "created-worker");
   assert.strictEqual(getWranglerValue(content, "database_name"), "created-db");
 });
+
+test("refuses to store sensitive wrangler keys through cli set", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  const original = buildWranglerTomlContent({});
+  fs.writeFileSync(tomlPath, original, "utf8");
+
+  await assert.rejects(
+    main(["set", "ADMIN_API_KEY", "supersecret", "--file", tomlPath], {
+      commandName: "urthreads wrangler",
+      output: { write: () => {} },
+    }),
+    /Refusing to store sensitive value ADMIN_API_KEY.*wrangler secret put/
+  );
+
+  assert.strictEqual(fs.readFileSync(tomlPath, "utf8"), original);
+});
+
+test("hides sensitive values from cli get unless --show-sensitive is passed", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  let content = buildWranglerTomlContent({});
+  content = updateWranglerToml(content, "ADMIN_API_KEY", "supersecret");
+  fs.writeFileSync(tomlPath, content, "utf8");
+
+  const hiddenWrites = [];
+  await main(["get", "ADMIN_API_KEY", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => hiddenWrites.push(message) },
+  });
+  const hiddenOutput = hiddenWrites.join("");
+  assert.ok(hiddenOutput.includes("ADMIN_API_KEY=(hidden)"));
+  assert.ok(!hiddenOutput.includes("supersecret"));
+
+  const shownWrites = [];
+  await main(["get", "ADMIN_API_KEY", "--show-sensitive", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => shownWrites.push(message) },
+  });
+  assert.ok(shownWrites.join("").includes("ADMIN_API_KEY=supersecret"));
+});
+
+test("hides sensitive values from cli list unless --show-sensitive is passed", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  let content = buildWranglerTomlContent({});
+  content = updateWranglerToml(content, "ADMIN_API_KEY", "supersecret");
+  content = updateWranglerToml(content, "ALLOWED_ORIGINS", "https://example.com");
+  fs.writeFileSync(tomlPath, content, "utf8");
+
+  const writes = [];
+  await main(["list", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => writes.push(message) },
+  });
+  const output = writes.join("");
+  assert.ok(output.includes("vars.ALLOWED_ORIGINS=https://example.com"));
+  assert.ok(output.includes("vars.ADMIN_API_KEY=(hidden)"));
+  assert.ok(!output.includes("supersecret"));
+
+  const shownWrites = [];
+  await main(["list", "--show-sensitive", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => shownWrites.push(message) },
+  });
+  assert.ok(shownWrites.join("").includes("vars.ADMIN_API_KEY=supersecret"));
+});
