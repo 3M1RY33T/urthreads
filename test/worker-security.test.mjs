@@ -31,6 +31,7 @@ import {
   timingSafeEqualString,
   buildSafeErrorResponse,
   base64UrlEncodeString,
+  base64UrlDecodeToString,
 } from '../src/worker-security.mjs';
 
 const WORKER_URL = 'https://worker.example.workers.dev';
@@ -577,4 +578,87 @@ test('buildSafeErrorResponse: error without a message still yields a safe body',
   const result = buildSafeErrorResponse(new Error());
   assert.equal(result.error, 'Engagement service failed.');
   assert.match(result.correlationId, UUID_RE);
+});
+
+// --- Phase 2: crypto-safe fallbacks and jti propagation ---------------------
+
+test('createAdminSessionToken: fallback session ID is a long base64url string, not short Math.random', async () => {
+  // Force the fallback path by temporarily removing randomUUID.
+  const originalRandomUUID = globalThis.crypto?.randomUUID;
+  if (originalRandomUUID) {
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  }
+  try {
+    const env = baseEnv();
+    const now = 1_700_000_000_000;
+    const created = await createAdminSessionToken(env, now);
+    // The token's payload (before the dot) should decode to a jti that is
+    // a long base64url string (at least 16 bytes -> ~22 chars), not a short
+    // Math.random().toString(36) output.
+    const encodedPayload = created.token.split('.')[0];
+    const payload = JSON.parse(base64UrlDecodeToString(encodedPayload));
+    assert.ok(payload.jti.length >= 20, `fallback jti must be a long string, got: ${payload.jti}`);
+    // Must contain the issuedAt prefix and a base64url segment.
+    assert.ok(payload.jti.startsWith('1700000000-'), `fallback jti must start with issuedAt prefix, got: ${payload.jti}`);
+  } finally {
+    if (originalRandomUUID) {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        value: originalRandomUUID,
+        configurable: true,
+        writable: true,
+      });
+    }
+  }
+});
+
+test('buildSafeErrorResponse: fallback correlation ID is a long base64url string', () => {
+  const originalRandomUUID = globalThis.crypto?.randomUUID;
+  if (originalRandomUUID) {
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  }
+  try {
+    const result = buildSafeErrorResponse(new Error('test'));
+    // The fallback correlation ID format is: timestamp-base64url(16 bytes).
+    // The base64url portion should be at least ~22 chars, so the whole thing
+    // is much longer than a Math.random().toString(36) output (~10-12 chars).
+    assert.ok(result.correlationId.length > 30, `fallback correlationId must be long, got: ${result.correlationId}`);
+    // Must not match the short Math.random pattern (timestamp followed by
+    // a short alphanumeric string).
+    assert.ok(!/^\d+-[a-z0-9]{1,15}$/i.test(result.correlationId),
+      `fallback correlationId must not look like Math.random output, got: ${result.correlationId}`);
+  } finally {
+    if (originalRandomUUID) {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        value: originalRandomUUID,
+        configurable: true,
+        writable: true,
+      });
+    }
+  }
+});
+
+test('createAdminSessionToken: returns jti in the result object', async () => {
+  const env = baseEnv();
+  const created = await createAdminSessionToken(env, 1_700_000_000_000);
+  assert.ok(created.jti, 'createAdminSessionToken must return a jti property');
+  assert.equal(typeof created.jti, 'string');
+  assert.ok(created.jti.length > 0);
+});
+
+test('verifyAdminSessionToken: returns jti on successful verification', async () => {
+  const env = baseEnv();
+  const now = 1_700_000_000_000;
+  const created = await createAdminSessionToken(env, now);
+  const verified = await verifyAdminSessionToken(created.token, env, now + 1000);
+  assert.equal(verified.allowed, true);
+  assert.ok(verified.jti, 'verifyAdminSessionToken must return jti on success');
+  assert.equal(verified.jti, created.jti);
 });

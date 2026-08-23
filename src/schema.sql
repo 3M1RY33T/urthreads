@@ -86,3 +86,33 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
 
 CREATE INDEX IF NOT EXISTS auth_attempts_bucket_key_idx
   ON auth_attempts (bucket_key, window_start);
+
+-- Public POST endpoint rate limiting keyed by client IP and endpoint.
+-- One row per (bucket_key, endpoint, window_start); the worker upserts the
+-- counter and lockout_until via INSERT ... ON CONFLICT, mirroring auth_attempts.
+CREATE TABLE IF NOT EXISTS public_rate_limits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket_key TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  lockout_until INTEGER,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (bucket_key, endpoint, window_start)
+);
+
+CREATE INDEX IF NOT EXISTS public_rate_limits_bucket_idx
+  ON public_rate_limits (bucket_key, endpoint, window_start);
+
+-- D1-backed admin session revocation: each issued session gets a row so it
+-- can be individually revoked. pruneExpiredAdminSessions cleans up old rows.
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  jti TEXT PRIMARY KEY,
+  issued_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS admin_sessions_expires_idx
+  ON admin_sessions (expires_at);

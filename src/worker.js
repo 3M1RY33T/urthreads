@@ -36,9 +36,15 @@ const jsonHeaders = {
 
 const ADMIN_LOGIN_MAX_FAILURES = 5;
 const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const PUBLIC_RATE_LIMIT_LIKES = 30;
+const PUBLIC_RATE_LIMIT_COMMENT_LIKES = 30;
+const PUBLIC_RATE_LIMIT_COMMENTS = 5;
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000;
 let commentHiddenColumnReady = false;
 let deniedKeywordsTableReady = false;
 let authAttemptsTableReady = false;
+let publicRateLimitsTableReady = false;
+let adminSessionsTableReady = false;
 const adminLoginLimiter = createAdminRateLimiter({
   maxFailures: ADMIN_LOGIN_MAX_FAILURES,
   windowMs: ADMIN_LOGIN_WINDOW_MS,
@@ -299,6 +305,187 @@ async function resetAuthAttempts(env, bucketKey) {
   await env.DB.prepare("DELETE FROM auth_attempts WHERE bucket_key = ?1")
     .bind(bucketKey)
     .run();
+}
+
+async function ensurePublicRateLimitsTable(env) {
+  if (!env.DB || publicRateLimitsTableReady) return;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS public_rate_limits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_key TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      window_start INTEGER NOT NULL,
+      request_count INTEGER NOT NULL DEFAULT 0,
+      lockout_until INTEGER,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (bucket_key, endpoint, window_start)
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE INDEX IF NOT EXISTS public_rate_limits_bucket_idx
+      ON public_rate_limits (bucket_key, endpoint, window_start)
+  `).run();
+
+  publicRateLimitsTableReady = true;
+}
+
+async function checkPublicRateLimit(env, ip, endpoint, maxRequests, windowMs) {
+  if (!env.DB) return { allowed: true };
+  await ensurePublicRateLimitsTable(env);
+
+  const now = Date.now();
+  const bucketKey = `${ip}:${endpoint}`;
+
+  // Check for an active lockout first.
+  const lockoutRow = await env.DB.prepare(`
+    SELECT lockout_until
+    FROM public_rate_limits
+    WHERE bucket_key = ?1 AND endpoint = ?2 AND lockout_until IS NOT NULL
+    ORDER BY lockout_until DESC
+    LIMIT 1
+  `)
+    .bind(bucketKey, endpoint)
+    .first();
+
+  if (lockoutRow && Number(lockoutRow.lockout_until) > now) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((Number(lockoutRow.lockout_until) - now) / 1000));
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  // Find the current window row (most recent window_start within the window).
+  const windowRow = await env.DB.prepare(`
+    SELECT window_start, request_count
+    FROM public_rate_limits
+    WHERE bucket_key = ?1 AND endpoint = ?2
+    ORDER BY window_start DESC
+    LIMIT 1
+  `)
+    .bind(bucketKey, endpoint)
+    .first();
+
+  let windowStart;
+  let currentCount;
+
+  if (windowRow && Number(windowRow.window_start) > 0 && now - Number(windowRow.window_start) < windowMs) {
+    windowStart = Number(windowRow.window_start);
+    currentCount = Number(windowRow.request_count || 0);
+
+    if (currentCount >= maxRequests) {
+      // Lock out for the remaining window duration.
+      const lockoutUntil = windowStart + windowMs;
+      await env.DB.prepare(`
+        INSERT INTO public_rate_limits (bucket_key, endpoint, window_start, request_count, lockout_until, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+        ON CONFLICT(bucket_key, endpoint, window_start) DO UPDATE SET
+          lockout_until = ?5,
+          updated_at = CURRENT_TIMESTAMP
+      `)
+        .bind(bucketKey, endpoint, windowStart, currentCount, lockoutUntil)
+        .run();
+
+      const retryAfterSeconds = Math.max(1, Math.ceil((lockoutUntil - now) / 1000));
+      return { allowed: false, retryAfterSeconds };
+    }
+  } else {
+    // Start a new window.
+    windowStart = now;
+    currentCount = 0;
+  }
+
+  // Increment the counter via upsert.
+  await env.DB.prepare(`
+    INSERT INTO public_rate_limits (bucket_key, endpoint, window_start, request_count, lockout_until, updated_at)
+    VALUES (?1, ?2, ?3, 1, NULL, CURRENT_TIMESTAMP)
+    ON CONFLICT(bucket_key, endpoint, window_start) DO UPDATE SET
+      request_count = request_count + 1,
+      updated_at = CURRENT_TIMESTAMP
+  `)
+    .bind(bucketKey, endpoint, windowStart)
+    .run();
+
+  return { allowed: true };
+}
+
+async function ensureAdminSessionsTable(env) {
+  if (!env.DB || adminSessionsTableReady) return;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      jti TEXT PRIMARY KEY,
+      issued_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE INDEX IF NOT EXISTS admin_sessions_expires_idx
+      ON admin_sessions (expires_at)
+  `).run();
+
+  adminSessionsTableReady = true;
+}
+
+async function persistAdminSession(env, jti, issuedAt, expiresAt) {
+  if (!env.DB) return;
+  await ensureAdminSessionsTable(env);
+
+  await env.DB.prepare(`
+    INSERT INTO admin_sessions (jti, issued_at, expires_at)
+    VALUES (?1, ?2, ?3)
+    ON CONFLICT(jti) DO NOTHING
+  `)
+    .bind(jti, issuedAt, expiresAt)
+    .run();
+}
+
+async function isAdminSessionValid(env, jti) {
+  if (!env.DB) return true;
+  await ensureAdminSessionsTable(env);
+
+  const row = await env.DB.prepare(`
+    SELECT revoked, expires_at
+    FROM admin_sessions
+    WHERE jti = ?1
+  `)
+    .bind(jti)
+    .first();
+
+  if (!row) return false;
+  if (Number(row.revoked) === 1) return false;
+  if (Number(row.expires_at) < Math.floor(Date.now() / 1000)) return false;
+  return true;
+}
+
+async function revokeAdminSession(env, jti) {
+  if (!env.DB) return;
+  await ensureAdminSessionsTable(env);
+
+  await env.DB.prepare("UPDATE admin_sessions SET revoked = 1 WHERE jti = ?1")
+    .bind(jti)
+    .run();
+}
+
+async function pruneExpiredAdminSessions(env) {
+  if (!env.DB) return;
+  await ensureAdminSessionsTable(env);
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  await env.DB.prepare("DELETE FROM admin_sessions WHERE expires_at < ?1")
+    .bind(nowSeconds)
+    .run();
+}
+
+async function validateAdminAccess(request, env) {
+  const access = await getAdminAccess(request, env);
+  if (access.allowed && access.jti) {
+    const valid = await isAdminSessionValid(env, access.jti);
+    if (!valid) {
+      return { allowed: false, fingerprint: access.fingerprint };
+    }
+  }
+  return access;
 }
 
 async function getLoginRetryAfterSeconds(env, ipBucketKey, credBucketKey) {
@@ -601,6 +788,17 @@ async function handleLikes(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const ip = getClientIp(request);
+    const rateLimit = await checkPublicRateLimit(env, ip, "likes", PUBLIC_RATE_LIMIT_LIKES, PUBLIC_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        request,
+        env,
+        { error: "Rate limit exceeded. Try again later." },
+        429,
+        { "Retry-After": String(rateLimit.retryAfterSeconds) }
+      );
+    }
     const count = await incrementLikeCount(env, path);
     return jsonResponse(request, env, { path, count });
   }
@@ -681,6 +879,17 @@ async function handleCommentLikes(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const ip = getClientIp(request);
+    const rateLimit = await checkPublicRateLimit(env, ip, "comment_likes", PUBLIC_RATE_LIMIT_COMMENT_LIKES, PUBLIC_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        request,
+        env,
+        { error: "Rate limit exceeded. Try again later." },
+        429,
+        { "Retry-After": String(rateLimit.retryAfterSeconds) }
+      );
+    }
     const likes = await incrementCommentLikeCount(env, commentId);
     if (likes === null) {
       return jsonResponse(request, env, { error: "Comment not found." }, 404);
@@ -709,6 +918,18 @@ async function handleComments(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const ip = getClientIp(request);
+    const rateLimit = await checkPublicRateLimit(env, ip, "comments", PUBLIC_RATE_LIMIT_COMMENTS, PUBLIC_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        request,
+        env,
+        { error: "Rate limit exceeded. Try again later." },
+        429,
+        { "Retry-After": String(rateLimit.retryAfterSeconds) }
+      );
+    }
+
     let payload;
 
     try {
@@ -1529,6 +1750,10 @@ async function handleAdminSession(request, env, url) {
     await resetAuthAttempts(env, credBucketKey);
 
     const session = await createAdminSessionToken(env);
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const expiresAt = issuedAt + session.ttlSeconds;
+    await persistAdminSession(env, session.jti, issuedAt, expiresAt);
+    await pruneExpiredAdminSessions(env);
     const body = {
       authenticated: true,
       expiresAt: session.expiresAt,
@@ -1558,7 +1783,10 @@ async function handleAdminSession(request, env, url) {
       return jsonResponse(request, env, { error: "Cross-origin request blocked." }, 403);
     }
 
-    const access = await getAdminAccess(request, env);
+    const access = await validateAdminAccess(request, env);
+    if (access.allowed && access.jti) {
+      await revokeAdminSession(env, access.jti);
+    }
     const response = jsonResponse(
       request,
       env,
@@ -1577,7 +1805,7 @@ async function handleAdminSession(request, env, url) {
   }
 
   if (request.method === "GET") {
-    const access = await getAdminAccess(request, env);
+    const access = await validateAdminAccess(request, env);
     const response = jsonResponse(
       request,
       env,
@@ -1603,7 +1831,7 @@ async function handleAdmin(request, env, url) {
     }
   }
 
-  const access = await getAdminAccess(request, env);
+  const access = await validateAdminAccess(request, env);
   if (!access.allowed) {
     const response = jsonResponse(request, env, { error: "Admin access is required." }, 401);
     await recordAdminAuditLog(env, request, url, {

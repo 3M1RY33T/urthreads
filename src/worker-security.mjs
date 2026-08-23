@@ -373,7 +373,7 @@ export async function createAdminSessionToken(env, now = Date.now()) {
   const expiresAt = issuedAt + ttlSeconds;
   const sessionId = globalThis.crypto?.randomUUID
     ? crypto.randomUUID()
-    : `${issuedAt}-${Math.random().toString(36).slice(2)}`;
+    : `${issuedAt}-${base64UrlEncodeBytes(crypto.getRandomValues(new Uint8Array(16)))}`;
   const payload = {
     type: "admin_session",
     iat: issuedAt,
@@ -388,6 +388,7 @@ export async function createAdminSessionToken(env, now = Date.now()) {
     token: `${encodedPayload}.${signature}`,
     expiresAt: new Date(expiresAt * 1000).toISOString(),
     ttlSeconds,
+    jti: sessionId,
     fingerprint: await fingerprintCredential(`session:${sessionId}`),
   };
 }
@@ -426,6 +427,7 @@ export async function verifyAdminSessionToken(token, env, now = Date.now()) {
 
   return {
     allowed: true,
+    jti: payload.jti,
     fingerprint: sessionFingerprint,
   };
 }
@@ -485,6 +487,6 @@ export function buildSafeErrorResponse(error) {
     error: "Engagement service failed.",
     correlationId: globalThis.crypto?.randomUUID
       ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      : `${Date.now()}-${base64UrlEncodeBytes(crypto.getRandomValues(new Uint8Array(16)))}`,
   };
 }

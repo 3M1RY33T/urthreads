@@ -388,3 +388,519 @@ test('admin-flow: a handler throw yields a sanitized 500 with a correlation id',
 
   assert.ok(auditAction(db, 'admin.error'), 'admin 500s must be audit-logged with the correlation id');
 });
+
+// ---------------------------------------------------------------------------
+// Phase 3: D1-backed rate limiting on public POST endpoints
+// ---------------------------------------------------------------------------
+// The existing createMockD1 returns generic results for all queries. Rate
+// limit tests need a mock that tracks public_rate_limits rows (window_start,
+// request_count, lockout_until) per (bucket_key, endpoint) and admin_sessions
+// rows (jti, revoked, expires_at) for the Phase 4 revocation tests.
+
+/**
+ * Stateful mock D1 that simulates rate limit counters and admin session rows.
+ * Rate limit rows are keyed by (bucket_key, endpoint). The mock tracks the
+ * latest window_start, request_count, and lockout_until for each key.
+ * Admin session rows are keyed by jti with revoked and expires_at fields.
+ *
+ * An optional `nowFn` lets tests inject deterministic timestamps so they can
+ * simulate window expiry without waiting in real time.
+ */
+function createStatefulMockD1(options = {}) {
+  const nowFn = options.nowFn || (() => Date.now());
+  const rateLimitRows = new Map(); // key: "bucket_key|endpoint" -> { window_start, request_count, lockout_until }
+  const adminSessionRows = new Map(); // key: jti -> { revoked, expires_at }
+  const auditInserts = [];
+  const authAttemptWrites = [];
+  const allStatements = [];
+
+  function rateLimitKey(bucketKey, endpoint) {
+    return `${bucketKey}|${endpoint}`;
+  }
+
+  function makeStatement(sql) {
+    const execute = (kind, args) => {
+      allStatements.push({ sql, kind, args });
+
+      if (kind === 'run') {
+        if (/admin_audit_logs/i.test(sql)) auditInserts.push(args);
+        if (/auth_attempts/i.test(sql)) authAttemptWrites.push(args);
+
+        // Handle public_rate_limits upsert (INSERT ... ON CONFLICT DO UPDATE)
+        if (/public_rate_limits/i.test(sql)) {
+          const bucketKey = args[0];
+          const endpoint = args[1];
+          const windowStart = args[2];
+          const key = rateLimitKey(bucketKey, endpoint);
+
+          if (/ON CONFLICT/i.test(sql)) {
+            const existing = rateLimitRows.get(key);
+            if (existing && existing.window_start === windowStart) {
+              // ON CONFLICT DO UPDATE: increment counter or set lockout
+              if (/request_count = request_count \+ 1/i.test(sql)) {
+                existing.request_count += 1;
+              }
+              if (/lockout_until = \?/i.test(sql) && args[4] != null) {
+                existing.lockout_until = args[4];
+              }
+              existing.updated_at = 'CURRENT_TIMESTAMP';
+            } else {
+              // New row
+              const requestCount = args[3] != null ? args[3] : 1;
+              const lockoutUntil = args[4] != null ? args[4] : null;
+              rateLimitRows.set(key, {
+                window_start: windowStart,
+                request_count: requestCount,
+                lockout_until: lockoutUntil,
+              });
+            }
+          } else {
+            // Plain INSERT (shouldn't normally happen, but handle it)
+            rateLimitRows.set(key, {
+              window_start: windowStart,
+              request_count: args[3] || 1,
+              lockout_until: args[4] || null,
+            });
+          }
+        }
+
+        // Handle admin_sessions operations
+        if (/admin_sessions/i.test(sql)) {
+          if (/INSERT/i.test(sql) && /ON CONFLICT.*DO NOTHING/i.test(sql)) {
+            const jti = args[0];
+            if (!adminSessionRows.has(jti)) {
+              adminSessionRows.set(jti, {
+                revoked: 0,
+                expires_at: args[2],
+              });
+            }
+          }
+          if (/UPDATE.*SET revoked = 1/i.test(sql)) {
+            const jti = args[0];
+            if (adminSessionRows.has(jti)) {
+              adminSessionRows.get(jti).revoked = 1;
+            }
+          }
+          if (/DELETE FROM admin_sessions/i.test(sql)) {
+            const cutoff = args[0];
+            for (const [jti, row] of adminSessionRows) {
+              if (row.expires_at < cutoff) {
+                adminSessionRows.delete(jti);
+              }
+            }
+          }
+        }
+
+        return { meta: { last_row_id: allStatements.length, affected_rows: 1 } };
+      }
+
+      if (kind === 'first') {
+        // admin_sessions SELECT
+        if (/admin_sessions/i.test(sql) && /SELECT.*revoked.*expires_at/i.test(sql)) {
+          const jti = args[0];
+          const row = adminSessionRows.get(jti);
+          if (!row) return null;
+          return { revoked: row.revoked, expires_at: String(row.expires_at) };
+        }
+
+        // public_rate_limits lockout check
+        if (/public_rate_limits/i.test(sql) && /lockout_until/i.test(sql)) {
+          const bucketKey = args[0];
+          const endpoint = args[1];
+          const key = rateLimitKey(bucketKey, endpoint);
+          const row = rateLimitRows.get(key);
+          if (!row || !row.lockout_until) return null;
+          return { lockout_until: row.lockout_until };
+        }
+
+        // public_rate_limits window check
+        if (/public_rate_limits/i.test(sql) && /window_start.*request_count/i.test(sql)) {
+          const bucketKey = args[0];
+          const endpoint = args[1];
+          const key = rateLimitKey(bucketKey, endpoint);
+          const row = rateLimitRows.get(key);
+          if (!row) return null;
+          return { window_start: row.window_start, request_count: row.request_count };
+        }
+
+        // post_likes / post_comments first() for like count
+        if (/post_likes/i.test(sql)) {
+          return { count: 0 };
+        }
+        if (/post_comments/i.test(sql) && /likes_count/i.test(sql)) {
+          return { likes_count: 0 };
+        }
+        if (/post_comments/i.test(sql) && /SELECT path/i.test(sql)) {
+          return { path: '/test' };
+        }
+        if (/post_comments/i.test(sql) && /SELECT id FROM post_comments WHERE id/i.test(sql)) {
+          return { id: 1 };
+        }
+
+        return null;
+      }
+
+      if (kind === 'all') {
+        // post_comments all() for getApprovedComments
+        if (/post_comments/i.test(sql)) {
+          return { results: [] };
+        }
+        return { results: [] };
+      }
+
+      return { results: [] };
+    };
+
+    const bound = (args) => ({
+      async run() {
+        return execute('run', args);
+      },
+      async all() {
+        return execute('all', args);
+      },
+      async first() {
+        return execute('first', args);
+      },
+    });
+
+    return {
+      bind(...args) {
+        return bound(args);
+      },
+      async run() {
+        return execute('run', []);
+      },
+      async all() {
+        return execute('all', []);
+      },
+      async first() {
+        return execute('first', []);
+      },
+    };
+  }
+
+  return {
+    prepare(sql) {
+      return makeStatement(sql);
+    },
+    async batch(stmts) {
+      const results = [];
+      for (const statement of stmts) {
+        if (typeof statement.run === 'function') results.push(await statement.run());
+        else results.push({ meta: { affected_rows: 1 } });
+      }
+      return results;
+    },
+    auditInserts,
+    authAttemptWrites,
+    allStatements,
+    _rateLimitRows: rateLimitRows,
+    _adminSessionRows: adminSessionRows,
+  };
+}
+
+// --- Phase 3: Rate limiting tests ------------------------------------------
+
+test('rate-limit: 31st like request in 60 seconds returns 429', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const ip = '203.0.113.100';
+
+  // Send 30 like POSTs — all should succeed (200).
+  for (let i = 0; i < 30; i += 1) {
+    const res = await worker.fetch(
+      new Request(WORKER_URL + '/likes?path=/test-post', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': ip },
+      }),
+      env
+    );
+    assert.equal(res.status, 200, `like request ${i + 1} must succeed`);
+  }
+
+  // The 31st request must be rate-limited (429).
+  const blocked = await worker.fetch(
+    new Request(WORKER_URL + '/likes?path=/test-post', {
+      method: 'POST',
+      headers: { 'CF-Connecting-IP': ip },
+    }),
+    env
+  );
+  assert.equal(blocked.status, 429, '31st like request must be rate-limited');
+  assert.ok(blocked.headers.get('retry-after'), '429 must include Retry-After header');
+
+  const body = await blocked.json();
+  assert.ok(body.error.includes('Rate limit'), '429 body must mention rate limit');
+});
+
+test('rate-limit: 6th comment submission in 60 seconds returns 429', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const ip = '203.0.113.101';
+  const commentBody = JSON.stringify({
+    path: '/test-post',
+    pageUrl: 'https://example.com/test',
+    pageTitle: 'Test',
+    nickname: 'Tester',
+    content: 'Test comment',
+  });
+
+  // Send 5 comment POSTs — all should succeed (201).
+  for (let i = 0; i < 5; i += 1) {
+    const res = await worker.fetch(
+      new Request(WORKER_URL + '/comments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: commentBody,
+      }),
+      env
+    );
+    assert.equal(res.status, 201, `comment request ${i + 1} must succeed`);
+  }
+
+  // The 6th request must be rate-limited (429).
+  const blocked = await worker.fetch(
+    new Request(WORKER_URL + '/comments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': ip,
+      },
+      body: commentBody,
+    }),
+    env
+  );
+  assert.equal(blocked.status, 429, '6th comment request must be rate-limited');
+  assert.ok(blocked.headers.get('retry-after'), '429 must include Retry-After header');
+});
+
+test('rate-limit: rate limit resets after the window expires (injected timestamps)', async () => {
+  // Use a controllable clock so we can advance past the 60-second window
+  // without waiting in real time.
+  let currentTime = 1_700_000_000_000;
+  const db = createStatefulMockD1({ nowFn: () => currentTime });
+
+  // Monkey-patch Date.now on the env-level functions. The worker uses
+  // Date.now() internally, so we need to stub it globally for this test.
+  const originalDateNow = Date.now;
+  Date.now = () => currentTime;
+
+  try {
+    const env = makeEnv(db);
+    const ip = '203.0.113.102';
+
+    // Send 30 like POSTs to hit the limit.
+    for (let i = 0; i < 30; i += 1) {
+      const res = await worker.fetch(
+        new Request(WORKER_URL + '/likes?path=/test-post', {
+          method: 'POST',
+          headers: { 'CF-Connecting-IP': ip },
+        }),
+        env
+      );
+      assert.equal(res.status, 200, `like request ${i + 1} must succeed`);
+    }
+
+    // 31st must be blocked.
+    const blocked = await worker.fetch(
+      new Request(WORKER_URL + '/likes?path=/test-post', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': ip },
+      }),
+      env
+    );
+    assert.equal(blocked.status, 429, '31st like request must be rate-limited');
+
+    // Advance time past the 60-second window.
+    currentTime += 61_001;
+
+    // After the window expires, the next request must succeed.
+    const afterWindow = await worker.fetch(
+      new Request(WORKER_URL + '/likes?path=/test-post', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': ip },
+      }),
+      env
+    );
+    assert.equal(afterWindow.status, 200, 'request after window expiry must succeed');
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+test('rate-limit: different IPs have independent rate limit buckets', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+
+  // Exhaust IP A's like budget.
+  for (let i = 0; i < 30; i += 1) {
+    await worker.fetch(
+      new Request(WORKER_URL + '/likes?path=/test-post', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': '198.51.100.1' },
+      }),
+      env
+    );
+  }
+
+  // IP A is blocked.
+  const blockedA = await worker.fetch(
+    new Request(WORKER_URL + '/likes?path=/test-post', {
+      method: 'POST',
+      headers: { 'CF-Connecting-IP': '198.51.100.1' },
+    }),
+    env
+  );
+  assert.equal(blockedA.status, 429, 'IP A must be rate-limited after 30 requests');
+
+  // IP B is unaffected.
+  const okB = await worker.fetch(
+    new Request(WORKER_URL + '/likes?path=/test-post', {
+      method: 'POST',
+      headers: { 'CF-Connecting-IP': '198.51.100.2' },
+    }),
+    env
+  );
+  assert.equal(okB.status, 200, 'IP B must not be rate-limited by IP A usage');
+});
+
+test('rate-limit: comment_likes endpoint has its own rate limit budget', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const ip = '203.0.113.103';
+
+  // Exhaust the likes budget.
+  for (let i = 0; i < 30; i += 1) {
+    await worker.fetch(
+      new Request(WORKER_URL + '/likes?path=/test-post', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': ip },
+      }),
+      env
+    );
+  }
+
+  // Likes are blocked.
+  const blockedLikes = await worker.fetch(
+    new Request(WORKER_URL + '/likes?path=/test-post', {
+      method: 'POST',
+      headers: { 'CF-Connecting-IP': ip },
+    }),
+    env
+  );
+  assert.equal(blockedLikes.status, 429, 'likes must be rate-limited');
+
+  // Comment likes still work (different endpoint bucket).
+  const okCommentLike = await worker.fetch(
+    new Request(WORKER_URL + '/comments/like?commentId=1', {
+      method: 'POST',
+      headers: { 'CF-Connecting-IP': ip },
+    }),
+    env
+  );
+  assert.equal(okCommentLike.status, 200, 'comment_likes endpoint must be independent from likes');
+});
+
+// --- Phase 4: D1-backed session revocation tests ---------------------------
+
+test('revocation: a revoked admin session is rejected', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+
+  // Login to create a session.
+  const loginRes = await login(env, { ip: '203.0.113.110' });
+  assert.equal(loginRes.status, 200);
+
+  // The session works.
+  const cookie = sessionCookieHeader(loginRes);
+  const beforeRes = await worker.fetch(
+    new Request(WORKER_URL + '/admin/session', {
+      headers: { Cookie: cookie, Origin: 'https://dashboard.example.com' },
+    }),
+    env
+  );
+  assert.equal(beforeRes.status, 200, 'session must work before revocation');
+
+  // Revoke the session via DELETE.
+  const deleteRes = await worker.fetch(
+    new Request(WORKER_URL + '/admin/session', {
+      method: 'DELETE',
+      headers: { Cookie: cookie, Origin: 'https://dashboard.example.com' },
+    }),
+    env
+  );
+  assert.equal(deleteRes.status, 200, 'DELETE must succeed');
+
+  // The same session cookie must now be rejected.
+  const afterRes = await worker.fetch(
+    new Request(WORKER_URL + '/admin/session', {
+      headers: { Cookie: cookie, Origin: 'https://dashboard.example.com' },
+    }),
+    env
+  );
+  assert.equal(afterRes.status, 401, 'revoked session must be rejected');
+});
+
+test('revocation: DELETE /admin/session revokes the session in D1', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+
+  // Login.
+  const loginRes = await login(env, { ip: '203.0.113.111' });
+  assert.equal(loginRes.status, 200);
+  const cookie = sessionCookieHeader(loginRes);
+
+  // Extract the jti from the session token to verify it was persisted.
+  const tokenValue = cookie.split('=')[1];
+  const encodedPayload = tokenValue.split('.')[0];
+
+  // The token is base64url-encoded JSON. Decode it to get the jti.
+  const payload = JSON.parse(
+    Buffer.from(encodedPayload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+  );
+  assert.ok(payload.jti, 'session token must contain a jti');
+
+  // Verify the session was persisted in the mock D1.
+  assert.ok(db._adminSessionRows.has(payload.jti), 'session must be persisted in admin_sessions table');
+
+  // DELETE to revoke.
+  const deleteRes = await worker.fetch(
+    new Request(WORKER_URL + '/admin/session', {
+      method: 'DELETE',
+      headers: { Cookie: cookie, Origin: 'https://dashboard.example.com' },
+    }),
+    env
+  );
+  assert.equal(deleteRes.status, 200);
+
+  // Verify the session is marked revoked in D1.
+  const sessionRow = db._adminSessionRows.get(payload.jti);
+  assert.ok(sessionRow, 'session row must exist after delete');
+  assert.equal(sessionRow.revoked, 1, 'session must be marked revoked=1 in D1');
+});
+
+test('revocation: a session for a non-existent jti is rejected', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+
+  // Create a valid session token (signed with the correct secret), but
+  // do NOT persist it — the D1 admin_sessions table has no row for it.
+  // The crypto signature is valid, but the jti was never persisted.
+  const { createAdminSessionToken } = await import('../src/worker-security.mjs');
+  const created = await createAdminSessionToken(env, Date.now());
+
+  // The token is cryptographically valid but has no D1 row.
+  const res = await worker.fetch(
+    new Request(WORKER_URL + '/admin/session', {
+      headers: {
+        Cookie: `__Host-urthreads_admin_session=${created.token}`,
+        Origin: 'https://dashboard.example.com',
+      },
+    }),
+    env
+  );
+  assert.equal(res.status, 401, 'session with non-existent jti must be rejected');
+});
