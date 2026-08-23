@@ -37,7 +37,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "setup:env": "node src/urthreads.js setup-env",

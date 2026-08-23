@@ -131,7 +131,7 @@ async function getEmailEncryptionKey(env) {
   if (!material) return null;
   if (cachedKeyMaterial === material && cachedEncryptionKey) return cachedEncryptionKey;
   const encoder = new TextEncoder();
-  cachedEncryptionKey = await crypto.subtle.importKey(
+  cachedEncryptionKey = await globalThis.crypto.subtle.importKey(
     "raw",
     encoder.encode(material),
     { name: "AES-GCM", length: 256 },
@@ -163,8 +163,8 @@ function base64ToBuf(b64) {
 async function encryptEmail(env, plaintext) {
   const key = await getEmailEncryptionKey(env);
   if (!key) return plaintext;
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await globalThis.crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
     new TextEncoder().encode(plaintext)
@@ -182,7 +182,7 @@ async function decryptEmail(env, stored) {
     if (parts.length < 3) return "";
     const iv = base64ToBuf(parts[1]);
     const ciphertext = base64ToBuf(parts.slice(2).join(":"));
-    const decrypted = await crypto.subtle.decrypt(
+    const decrypted = await globalThis.crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
       key,
       ciphertext

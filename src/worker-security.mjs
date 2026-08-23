@@ -308,14 +308,14 @@ export async function signAdminSessionPayload(payload, env) {
   const secret = String(env.ADMIN_SESSION_SECRET || env.ADMIN_API_KEY || "").trim();
   if (!secret || !globalThis.crypto?.subtle) return "";
 
-  const key = await crypto.subtle.importKey(
+  const key = await globalThis.crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
   );
-  const signature = await crypto.subtle.sign(
+  const signature = await globalThis.crypto.subtle.sign(
     "HMAC",
     key,
     new TextEncoder().encode(payload)
@@ -372,8 +372,8 @@ export async function createAdminSessionToken(env, now = Date.now()) {
   const issuedAt = Math.floor(now / 1000);
   const expiresAt = issuedAt + ttlSeconds;
   const sessionId = globalThis.crypto?.randomUUID
-    ? crypto.randomUUID()
-    : `${issuedAt}-${base64UrlEncodeBytes(crypto.getRandomValues(new Uint8Array(16)))}`;
+    ? globalThis.crypto.randomUUID()
+    : `${issuedAt}-${base64UrlEncodeBytes(globalThis.crypto.getRandomValues(new Uint8Array(16)))}`;
   const payload = {
     type: "admin_session",
     iat: issuedAt,
@@ -447,7 +447,7 @@ export async function fingerprintCredential(value) {
   if (!credential || !globalThis.crypto?.subtle) return "";
 
   const data = new TextEncoder().encode(credential);
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(digest))
     .slice(0, 8)
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -486,7 +486,7 @@ export function buildSafeErrorResponse(error) {
   return {
     error: "Engagement service failed.",
     correlationId: globalThis.crypto?.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}-${base64UrlEncodeBytes(crypto.getRandomValues(new Uint8Array(16)))}`,
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${base64UrlEncodeBytes(globalThis.crypto.getRandomValues(new Uint8Array(16)))}`,
   };
 }
