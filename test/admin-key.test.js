@@ -113,6 +113,24 @@ test("does not print generated admin key and copies it to clipboard", async () =
   assert.ok(!stdout.includes(generatedKey));
 });
 
+test("next steps include the local development hint", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "urthreads-admin-key-hint-"));
+  const envPath = path.join(tmpDir, ".env");
+  let stdout = "";
+
+  await main(["--env", envPath, "--expires", "never"], {
+    output: { write: (chunk) => { stdout += chunk; } },
+    prompter: null,
+    generateAdminApiKey: () => "hint-test-key",
+    copyToClipboard: () => ({ copied: false, command: "" }),
+  });
+
+  assert.ok(
+    stdout.includes("For local development (no Cloudflare account needed): run npm run setup:dev"),
+    "next steps must mention the no-Cloudflare local path"
+  );
+});
+
 test("stores admin key secret through Wrangler without printing the secret", () => {
   const calls = [];
   const result = storeAdminKeySecret("secret-admin-key-value", {

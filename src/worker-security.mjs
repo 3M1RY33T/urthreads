@@ -7,6 +7,7 @@
  */
 
 const ADMIN_SESSION_COOKIE_NAME = "__Host-urthreads_admin_session";
+const ADMIN_SESSION_COOKIE_NAME_LOCAL = "urthreads_admin_session";
 const DEFAULT_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
 const MIN_ADMIN_SESSION_TTL_SECONDS = 15 * 60;
 const MAX_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
@@ -18,6 +19,32 @@ function safeParseUrl(value) {
   } catch (error) {
     return null;
   }
+}
+
+/**
+ * True when the request originates from the local admin development host: plain
+ * HTTP over a loopback hostname (localhost, 127.0.0.1, or [::1]). A production
+ * worker is only reachable over HTTPS on its own hostname, so this can never be
+ * true for a real deployment. Used to relax the __Host-/Secure cookie rules that
+ * would otherwise be silently dropped by browsers over plain HTTP.
+ */
+export function isLocalHttpOrigin(request) {
+  const parsedUrl = safeParseUrl(request?.url);
+  if (!parsedUrl || parsedUrl.protocol !== "http:") {
+    return false;
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+/**
+ * The admin session cookie name, local-first for loopback HTTP development and
+ * __Host- otherwise. Login and logout must use the same name so a local session
+ * is cleared even when the __Host- variant was never set.
+ */
+export function getAdminSessionCookieName(request) {
+  return isLocalHttpOrigin(request) ? ADMIN_SESSION_COOKIE_NAME_LOCAL : ADMIN_SESSION_COOKIE_NAME;
 }
 
 /**
@@ -326,9 +353,14 @@ export async function signAdminSessionPayload(payload, env) {
 export function getAdminSessionCookie(request) {
   const cookieHeader = request.headers.get("Cookie") || "";
   const cookies = cookieHeader.split(";").map((cookie) => cookie.trim());
-  const prefix = `${ADMIN_SESSION_COOKIE_NAME}=`;
-  const cookie = cookies.find((item) => item.startsWith(prefix));
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
+  for (const name of [ADMIN_SESSION_COOKIE_NAME, ADMIN_SESSION_COOKIE_NAME_LOCAL]) {
+    const prefix = `${name}=`;
+    const cookie = cookies.find((item) => item.startsWith(prefix));
+    if (cookie) {
+      return decodeURIComponent(cookie.slice(prefix.length));
+    }
+  }
+  return "";
 }
 
 function getAdminSessionCredential(request) {
@@ -337,6 +369,16 @@ function getAdminSessionCredential(request) {
 
 export function getAdminSessionCookieSameSite(request, env) {
   const configured = String(env.ADMIN_SESSION_COOKIE_SAMESITE || "").trim().toLowerCase();
+
+  // Plain HTTP loopback (local dev) can never carry SameSite=None: browsers
+  // reject a None cookie that lacks Secure. The local dashboard talks to the
+  // worker from a different port (different origin, same site), so Lax still
+  // attaches the cookie and the worker's own loopback-origin gate plus the
+  // checkCsrf allowed-origin rule keep it safe.
+  if (isLocalHttpOrigin(request)) {
+    return configured === "strict" ? "Strict" : "Lax";
+  }
+
   if (configured === "none") return "None";
   if (configured === "strict") return "Strict";
   if (configured === "lax") return "Lax";
@@ -347,20 +389,30 @@ export function getAdminSessionCookieSameSite(request, env) {
 }
 
 /**
- * Build the admin session cookie with the __Host- prefix. The __Host- prefix
- * requires Path=/ (and Secure, which is always set here), so the session cookie
- * is scoped to the whole worker origin. The cookie name is internal to the
- * worker — the dashboard never reads it by name.
+ * Build the admin session cookie. Over HTTPS (production) the __Host- prefix is
+ * used with Secure set, which requires Path=/. Over plain HTTP loopback
+ * (local dev) the __Host-/Secure pair is dropped, because browsers silently
+ * discard Secure cookies on non-HTTPS origins; the un-prefixed name keeps the
+ * cookie on the same Host-only scope. SameSite is forced to Lax (or the
+ * configured Strict) over plain HTTP loopback because browsers reject a
+ * SameSite=None cookie that lacks Secure. HttpOnly and Path=/ stay set in both
+ * paths. The cookie name is internal to the worker — the dashboard never reads
+ * it by name.
  */
 export function buildAdminSessionCookie(request, token, maxAgeSeconds, env) {
-  return [
-    `${ADMIN_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+  const isLocal = isLocalHttpOrigin(request);
+  const attributes = [
+    `${getAdminSessionCookieName(request)}=${encodeURIComponent(token)}`,
     `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
     "Path=/",
     "HttpOnly",
-    "Secure",
-    `SameSite=${getAdminSessionCookieSameSite(request, env)}`,
-  ].join("; ");
+  ];
+  const sameSite = getAdminSessionCookieSameSite(request, env);
+  if (!isLocal) {
+    attributes.push("Secure");
+  }
+  attributes.push(`SameSite=${sameSite}`);
+  return attributes.join("; ");
 }
 
 export function buildExpiredAdminSessionCookie(request, env) {

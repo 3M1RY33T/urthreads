@@ -132,6 +132,21 @@
     return `${state.workerUrl}${path}`;
   }
 
+  // True for a plain-HTTP loopback worker origin (localhost/127.0.0.1/[::1]).
+  // Mirrors src/worker-security.mjs isLocalHttpOrigin: brackets stripped so the
+  // browser never gets told to "deploy again" for a local worker.
+  function isLocalHttpWorkerUrl(workerUrl) {
+    if (!workerUrl) return false;
+    try {
+      const url = new URL(workerUrl);
+      if (url.protocol !== 'http:') return false;
+      const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    } catch (error) {
+      return false;
+    }
+  }
+
   function canAttemptCookieSession(workerUrl = state.workerUrl) {
     if (!workerUrl || !window.location.origin || window.location.origin === 'null') {
       return false;
@@ -143,8 +158,7 @@
         return true;
       }
       if (url.protocol === 'http:') {
-        const hostname = url.hostname.toLowerCase();
-        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+        return isLocalHttpWorkerUrl(workerUrl);
       }
       return false;
     } catch (error) {
@@ -547,6 +561,9 @@
         throw new Error('The deployed Worker does not have ADMIN_API_KEY set. Run wrangler secret put ADMIN_API_KEY, paste your admin key, then try again.');
       }
       if (response.status === 401 && payload.reason === 'admin_key_expired') {
+        if (isLocalHttpWorkerUrl(state.workerUrl)) {
+          throw new Error('The local Worker says this admin key is expired. Run `npm run setup:dev` to reset .dev.vars, then restart `npm run dev`.');
+        }
         throw new Error('The deployed Worker says this admin key is expired. Generate a new key or update ADMIN_API_KEY_EXPIRES_AT, then deploy again.');
       }
       if (response.status === 401 && payload.reason === 'invalid_admin_key') {

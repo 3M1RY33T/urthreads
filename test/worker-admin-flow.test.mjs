@@ -129,6 +129,8 @@ function auditAction(db, action) {
   return db.auditInserts.find((args) => args[0] === action);
 }
 
+const LOCALHOST_URL = 'http://localhost:8787';
+
 function login(env, { adminKey = ADMIN_API_KEY, ip = '203.0.113.10' } = {}) {
   return worker.fetch(
     new Request(WORKER_URL + '/admin/session', {
@@ -136,6 +138,22 @@ function login(env, { adminKey = ADMIN_API_KEY, ip = '203.0.113.10' } = {}) {
       headers: {
         'Content-Type': 'application/json',
         Origin: 'https://dashboard.example.com',
+        'CF-Connecting-IP': ip,
+      },
+      body: JSON.stringify({ adminKey }),
+    }),
+    env
+  );
+}
+
+// Local login: plain HTTP loopback worker with a matching ALLOWED_ORIGINS entry.
+function loginLocal(env, { adminKey = ADMIN_API_KEY, origin = 'http://localhost:8000', ip = '203.0.113.11' } = {}) {
+  return worker.fetch(
+    new Request(LOCALHOST_URL + '/admin/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
         'CF-Connecting-IP': ip,
       },
       body: JSON.stringify({ adminKey }),
@@ -181,6 +199,56 @@ test('admin-flow: POST valid adminKey -> 200 with __Host- cookie flags and audit
   assert.ok(attrs.samesite, 'SameSite attribute must be present');
 
   assert.ok(auditAction(db, 'admin.session.create'), 'successful login must be audit-logged');
+});
+
+test('admin-flow: POST valid adminKey on loopback HTTP -> 200 with un-prefixed cookie, no Secure', async () => {
+  const db = createMockD1();
+  const env = makeEnv(db, {
+    ALLOWED_ORIGINS: 'http://localhost:8000',
+  });
+  const res = await loginLocal(env, { ip: '203.0.113.12' });
+  assert.equal(res.status, 200);
+
+  const body = await res.json();
+  assert.equal(body.authenticated, true);
+
+  const cookie = res.headers.get('set-cookie');
+  assert.ok(cookie, 'Set-Cookie expected on successful local login');
+  const attrs = parseSetCookie(cookie);
+  assert.equal(attrs.name, 'urthreads_admin_session');
+  assert.ok(attrs.value.length > 0, 'cookie must carry a session token');
+  assert.equal(attrs.path, '/');
+  assert.equal(attrs.httponly, true);
+  assert.equal(attrs.secure, undefined, 'Secure must be omitted over loopback HTTP');
+  assert.equal(
+    attrs.samesite.toLowerCase(),
+    'lax',
+    'loopback HTTP cookie must be SameSite=Lax; SameSite=None without Secure is rejected by browsers'
+  );
+
+  assert.ok(auditAction(db, 'admin.session.create'), 'successful local login must be audit-logged');
+});
+
+test('admin-flow: GET /admin/session with a localhost cookie -> 200 { authenticated: true }', async () => {
+  const db = createMockD1();
+  const env = makeEnv(db, {
+    ALLOWED_ORIGINS: 'http://localhost:8000',
+  });
+  const loginRes = await loginLocal(env, { ip: '203.0.113.13' });
+  assert.equal(loginRes.status, 200);
+
+  const res = await worker.fetch(
+    new Request(LOCALHOST_URL + '/admin/session', {
+      headers: {
+        Cookie: sessionCookieHeader(loginRes),
+        Origin: 'http://localhost:8000',
+      },
+    }),
+    env
+  );
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.authenticated, true);
 });
 
 test('admin-flow: GET /admin/session with a valid session cookie -> 200 { authenticated: true }', async () => {

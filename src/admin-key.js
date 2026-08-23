@@ -508,6 +508,7 @@ async function main(argv = process.argv.slice(2), options = {}) {
     if (workerUpdate.secretStored && (!expiration.expiresAt || workerUpdate.deployed)) {
       output.write("  1. Open the dashboard and sign in with the copied admin key.\n");
     }
+    output.write("  For local development (no Cloudflare account needed): run npm run setup:dev\n");
     output.write("\n");
   } finally {
     if (shouldClosePrompter) {

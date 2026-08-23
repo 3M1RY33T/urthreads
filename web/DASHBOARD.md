@@ -219,6 +219,26 @@ Then open one of:
 
 Whichever browser origin you use must be present in `ALLOWED_ORIGINS` for cookie sessions to work. The dashboard's https gate permits plain `http://` only for `localhost`, `127.0.0.1`, and `[::1]` worker origins, so the local commands above keep working.
 
+### Local testing (no Cloudflare account needed)
+
+To run the Worker and dashboard locally without Cloudflare credentials:
+
+```bash
+npm install
+npm run setup:dev    # writes .dev.vars (admin key, never-expiring admin key), initializes local D1
+npm run dev          # wrangler dev on http://localhost:8787
+```
+
+In a second terminal serve the dashboard:
+
+```bash
+python3 -m http.server 8000
+```
+
+Open `http://localhost:8000/web/index.html`, set **Worker URL** to `http://localhost:8787`, and paste the admin key that `npm run setup:dev` printed. `ALLOWED_ORIGINS` includes `http://localhost:8000` by default (see `wrangler.toml`), so the cookie session works over plain HTTP.
+
+`setup:dev` always writes `ADMIN_API_KEY_EXPIRES_AT=` (never-expiring) into the gitignored `.dev.vars`, so a stale or expired local key can never lock you out — re-run `npm run setup:dev` to reset it, then restart `npm run dev`. Local sessions use the un-prefixed `urthreads_admin_session` cookie (no `__Host-`/`Secure`) because browsers drop `Secure` cookies over HTTP; deployed HTTPS sessions keep the `__Host-urthreads_admin_session` cookie with `Secure`.
+
 After changing dashboard assets, bump the query strings in `index.html` so browsers fetch the latest files:
 
 ```html

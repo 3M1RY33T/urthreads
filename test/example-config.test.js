@@ -34,3 +34,15 @@ test("writes example Worker config to examples directory", () => {
 test("normalizes Worker URL for generated example config", () => {
   assert.strictEqual(normalizeWorkerUrl("https://worker.example.dev///"), "https://worker.example.dev");
 });
+
+test("committed example config defaults to the local Worker", () => {
+  const configPath = path.join(__dirname, "..", "examples", "urthreads-worker-config.js");
+  const content = fs.readFileSync(configPath, "utf8");
+
+  assert.ok(
+    content.includes('const defaultWorkerUrl = "http://localhost:8787";'),
+    "example default must be the local Worker so the dashboard and example share one target"
+  );
+  assert.ok(content.includes('params.get("worker")'));
+  assert.ok(content.includes('params.get("resetWorker")'));
+});

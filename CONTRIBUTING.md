@@ -33,13 +33,15 @@ npm test
 npm run check
 ```
 
-For Worker development:
+For local Worker + dashboard development (no Cloudflare account needed):
 
 ```bash
-wrangler dev
+npm install
+npm run setup:dev    # creates .dev.vars (admin key, never-expiring), initializes local D1
+npm run dev          # wrangler dev on http://localhost:8787
 ```
 
-For dashboard or static example development:
+Open a second terminal for the static dashboard/example server:
 
 ```bash
 python3 -m http.server 8000
@@ -50,6 +52,14 @@ Then open:
 ```text
 http://localhost:8000/web/index.html
 ```
+
+Or the multi-page example pointed at the local Worker:
+
+```text
+http://localhost:8000/examples/multi-page-test/index.html?worker=http://localhost:8787
+```
+
+`npm run setup:dev` prints the admin key to paste into the dashboard when it prompts. `ALLOWED_ORIGINS` already includes `http://localhost:8000` (see `wrangler.toml`), so the cookie session works locally without extra config.
 
 ## Pull Request Guidelines
 

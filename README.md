@@ -146,11 +146,16 @@ urthreads delete-worker --name urthreads-worker
 ```bash
 npm test
 npm run check
-wrangler dev
-python3 -m http.server 8000
 ```
 
-Serve the dashboard at `http://localhost:8000/web/index.html` or `http://[::1]:8000/web/index.html`. The exact browser origin must be in `ALLOWED_ORIGINS` for cookie sessions.
+For local Worker + dashboard development (no Cloudflare account needed):
+
+```bash
+npm run setup:dev   # creates .dev.vars (admin key, never-expiring), initializes local D1
+npm run dev         # wrangler dev on http://localhost:8787
+```
+
+Serve the dashboard at `http://localhost:8000/web/index.html` or `http://[::1]:8000/web/index.html` (run `python3 -m http.server 8000` in a second terminal). The exact browser origin must be in `ALLOWED_ORIGINS` for cookie sessions; `http://localhost:8000` is included in `wrangler.toml` by default. `npm run setup:dev` prints the admin key to paste into the dashboard.
 
 ## More Docs
 

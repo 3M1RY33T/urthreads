@@ -22,12 +22,15 @@ import {
   buildExpiredAdminSessionCookie,
   getAdminSessionCookieSameSite,
   getAdminSessionCookie,
+  getAdminSessionCookieName,
+  isLocalHttpOrigin,
   signAdminSessionPayload,
   createAdminSessionToken,
   verifyAdminSessionToken,
   fingerprintCredential,
   getAdminCredential,
   getAdminAccess,
+  getAdminKeyAccess,
   timingSafeEqualString,
   buildSafeErrorResponse,
   base64UrlEncodeString,
@@ -49,6 +52,11 @@ function baseEnv(overrides = {}) {
 
 function req(path, { method = 'GET', headers = {}, body } = {}) {
   return new Request(WORKER_URL + path, { method, headers, body });
+}
+
+// Localhost HTTP request helper: the local admin-development path.
+function reqLocal(path, { method = 'GET', headers = {}, body } = {}) {
+  return new Request('http://localhost:8787' + path, { method, headers, body });
 }
 
 function headerValue(result, name) {
@@ -363,6 +371,34 @@ test('getAdminSessionCookieSameSite: auto lax/none and override', () => {
   );
 });
 
+test('getAdminSessionCookieSameSite: loopback HTTP always Lax/Strict, never None', () => {
+  assert.equal(getAdminSessionCookieSameSite(reqLocal('/admin/session'), baseEnv()).toLowerCase(), 'lax');
+  assert.equal(
+    getAdminSessionCookieSameSite(
+      reqLocal('/admin/session', { headers: { Origin: 'http://localhost:8000' } }),
+      baseEnv()
+    ).toLowerCase(),
+    'lax',
+    'cross-origin loopback (different port) must still be Lax, not None'
+  );
+  assert.equal(
+    getAdminSessionCookieSameSite(
+      reqLocal('/admin/session'),
+      baseEnv({ ADMIN_SESSION_COOKIE_SAMESITE: 'none' })
+    ).toLowerCase(),
+    'lax',
+    'explicit None override must be ignored over plain HTTP loopback'
+  );
+  assert.equal(
+    getAdminSessionCookieSameSite(
+      reqLocal('/admin/session'),
+      baseEnv({ ADMIN_SESSION_COOKIE_SAMESITE: 'strict' })
+    ).toLowerCase(),
+    'strict',
+    'explicit Strict override is honored over plain HTTP loopback'
+  );
+});
+
 test('getAdminSessionCookie: extracts the session cookie value', () => {
   assert.equal(
     getAdminSessionCookie(req('/admin/session', { headers: { Cookie: '__Host-urthreads_admin_session=abc123' } })),
@@ -377,6 +413,86 @@ test('getAdminSessionCookie: extracts the session cookie value', () => {
 test('getAdminSessionCookie: returns falsy when absent', () => {
   assert.ok(!getAdminSessionCookie(req('/admin/session')));
   assert.ok(!getAdminSessionCookie(req('/admin/session', { headers: { Cookie: 'other=1' } })));
+});
+
+test('buildAdminSessionCookie: loopback HTTP drops __Host-/Secure, forces SameSite=Lax (never None)', () => {
+  const cookie = buildAdminSessionCookie(reqLocal('/admin/session'), 'tok-local', 1800, baseEnv());
+  const attrs = parseSetCookie(cookie);
+  assert.equal(attrs.name, 'urthreads_admin_session');
+  assert.equal(attrs.value, 'tok-local');
+  assert.equal(attrs.path, '/');
+  assert.equal(attrs.httponly, true);
+  assert.equal(attrs.secure, undefined, 'Secure must be omitted over plain HTTP loopback');
+  assert.equal(attrs['max-age'], '1800');
+  assert.equal(
+    attrs.samesite.toLowerCase(),
+    'lax',
+    'SameSite=None without Secure is rejected by browsers, so loopback HTTP must be Lax'
+  );
+});
+
+test('buildAdminSessionCookie: loopback HTTP with an explicit SameSite=None override still forces Lax (never None)', () => {
+  const cookie = buildAdminSessionCookie(
+    reqLocal('/admin/session', { headers: { Origin: 'http://localhost:8000' } }),
+    'tok-local',
+    1800,
+    baseEnv({ ADMIN_SESSION_COOKIE_SAMESITE: 'none' })
+  );
+  const attrs = parseSetCookie(cookie);
+  assert.equal(attrs.name, 'urthreads_admin_session');
+  assert.equal(attrs.secure, undefined, 'Secure must be omitted over plain HTTP loopback');
+  assert.equal(
+    attrs.samesite.toLowerCase(),
+    'lax',
+    'an explicit None override must not produce SameSite=None over plain HTTP loopback'
+  );
+});
+
+test('buildAdminSessionCookie: explicit SameSite=None over HTTPS forces Secure', () => {
+  const cookie = buildAdminSessionCookie(
+    req('/admin/session', { headers: { Origin: 'https://dashboard.example.com' } }),
+    't',
+    1800,
+    baseEnv({ ADMIN_SESSION_COOKIE_SAMESITE: 'none' })
+  );
+  const attrs = parseSetCookie(cookie);
+  assert.equal(attrs.samesite.toLowerCase(), 'none');
+  assert.equal(attrs.secure, true, 'SameSite=None requires Secure; browsers reject None without Secure');
+});
+
+test('isLocalHttpOrigin: true for loopback HTTP hosts, false otherwise', () => {
+  assert.equal(isLocalHttpOrigin(new Request('http://localhost:8787/admin/session')), true);
+  assert.equal(isLocalHttpOrigin(new Request('http://127.0.0.1:8787/admin/session')), true);
+  assert.equal(isLocalHttpOrigin(new Request('http://[::1]:8787/admin/session')), true);
+  assert.equal(isLocalHttpOrigin(new Request('http://LOCALHOST:8787/admin/session')), true);
+  assert.equal(isLocalHttpOrigin(new Request('https://localhost:8787/admin/session')), false, 'https loopback is production');
+  assert.equal(isLocalHttpOrigin(new Request('http://worker.example.workers.dev/admin/session')), false);
+  assert.equal(isLocalHttpOrigin(new Request('http://example.com/admin/session')), false);
+  assert.equal(isLocalHttpOrigin(null), false, 'parse failure must yield false');
+  assert.equal(isLocalHttpOrigin({ url: 'invalid' }), false, 'unparseable URL must yield false');
+});
+
+test('getAdminSessionCookieName: local name for loopback HTTP, __Host- otherwise', () => {
+  assert.equal(getAdminSessionCookieName(reqLocal('/admin/session')), 'urthreads_admin_session');
+  assert.equal(getAdminSessionCookieName(req('/admin/session')), '__Host-urthreads_admin_session');
+  assert.equal(getAdminSessionCookieName(new Request('https://localhost:8787/admin/session')), '__Host-urthreads_admin_session');
+});
+
+test('getAdminSessionCookie: finds a localhost- and a production-name cookie, empty when neither', () => {
+  assert.equal(
+    getAdminSessionCookie(reqLocal('/admin/session', { headers: { Cookie: 'urthreads_admin_session=abc123' } })),
+    'abc123'
+  );
+  assert.equal(
+    getAdminSessionCookie(reqLocal('/admin/session', { headers: { Cookie: 'other=1; urthreads_admin_session=xyz789' } })),
+    'xyz789'
+  );
+  assert.equal(
+    getAdminSessionCookie(req('/admin/session', { headers: { Cookie: '__Host-urthreads_admin_session=prod-token' } })),
+    'prod-token'
+  );
+  assert.ok(!getAdminSessionCookie(reqLocal('/admin/session')));
+  assert.ok(!getAdminSessionCookie(reqLocal('/admin/session', { headers: { Cookie: 'whatever=1' } })));
 });
 
 // --- Session tokens ---------------------------------------------------------
@@ -485,6 +601,35 @@ test('admin key with no expiry configured is never expired', async () => {
   const created = await createAdminSessionToken(baseEnv(), 1_700_000_000_000);
   const verified = await verifyAdminSessionToken(created.token, baseEnv(), 1_700_000_000_000 + 1000);
   assert.equal(verified.allowed, true);
+});
+
+test('admin key expiry is not triggered by empty, unset, never, or none (fail-open for absent expiry)', async () => {
+  const cases = [
+    { label: 'empty', ADMIN_API_KEY_EXPIRES_AT: '' },
+    { label: 'white-space', ADMIN_API_KEY_EXPIRES_AT: '   ' },
+    { label: 'never', ADMIN_API_KEY_EXPIRES_AT: 'never' },
+    { label: 'None', ADMIN_API_KEY_EXPIRES_AT: 'None' },
+  ];
+  for (const item of cases) {
+    const env = baseEnv(item.label === 'white-space' ? { ADMIN_API_KEY_EXPIRES_AT: '   ' } : item);
+    const access = await getAdminKeyAccess('test-key-123', env, 1_700_000_000_000);
+    assert.equal(access.allowed, true, `${item.label} expiry must not expire the key`);
+  }
+
+  // Unset means the key is not expired.
+  const unset = await getAdminKeyAccess('test-key-123', baseEnv(), 1_700_000_000_000);
+  assert.equal(unset.allowed, true, 'an unset expiry must not expire the key');
+});
+
+test('admin key expiry is triggered by an unparseable value (fail-closed)', async () => {
+  const env = baseEnv({ ADMIN_API_KEY_EXPIRES_AT: 'not-a-date' });
+  const access = await getAdminKeyAccess('test-key-123', env, 1_700_000_000_000);
+  assert.equal(access.allowed, false);
+  const request = req('/admin/session', {
+    headers: { Authorization: 'Bearer test-key-123' },
+  });
+  const viaRequest = await getAdminAccess(request, env);
+  assert.equal(viaRequest.allowed, false, 'an unparseable expiry must fail closed');
 });
 
 // --- Credential extraction and access --------------------------------------
