@@ -904,3 +904,158 @@ test('revocation: a session for a non-existent jti is rejected', async () => {
   );
   assert.equal(res.status, 401, 'session with non-existent jti must be rejected');
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1 (F-06): pageUrl validation — reject javascript: and data: URLs
+// ---------------------------------------------------------------------------
+
+const VALID_COMMENT_BODY = {
+  path: '/test-post',
+  pageTitle: 'Test Page',
+  nickname: 'Tester',
+  content: 'Test comment',
+};
+
+async function postComment(env, body) {
+  return worker.fetch(
+    new Request(WORKER_URL + '/comments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '203.0.113.200',
+      },
+      body: JSON.stringify(body),
+    }),
+    env
+  );
+}
+
+test('pageUrl validation: javascript: URL is rejected with 400', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const res = await postComment(env, {
+    ...VALID_COMMENT_BODY,
+    pageUrl: 'javascript:alert(1)',
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.ok(body.error.includes('missing required fields') || body.error.includes('required'), `expected missing fields error, got: ${body.error}`);
+});
+
+test('pageUrl validation: data: URL is rejected with 400', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const res = await postComment(env, {
+    ...VALID_COMMENT_BODY,
+    pageUrl: 'data:text/html,<script>alert(1)</script>',
+  });
+  assert.equal(res.status, 400);
+});
+
+test('pageUrl validation: https URL is accepted with 201', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const res = await postComment(env, {
+    ...VALID_COMMENT_BODY,
+    pageUrl: 'https://example.com/test',
+  });
+  assert.equal(res.status, 201);
+});
+
+test('pageUrl validation: http URL is accepted with 201', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db);
+  const res = await postComment(env, {
+    ...VALID_COMMENT_BODY,
+    pageUrl: 'http://localhost:8000/test',
+  });
+  assert.equal(res.status, 201);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 (F-05): email encryption at rest
+// ---------------------------------------------------------------------------
+
+import {
+  encryptEmail,
+  decryptEmail,
+  getEmailEncryptionKey,
+} from '../src/worker.js';
+
+const TEST_KEY = 'a'.repeat(32); // 32-char key for testing
+
+test('encryptEmail: with no key returns plaintext unchanged', async () => {
+  const env = {};
+  const plaintext = 'user@example.com';
+  const result = await encryptEmail(env, plaintext);
+  assert.equal(result, plaintext);
+});
+
+test('encryptEmail: with a key returns a string starting with enc:', async () => {
+  const env = { DATA_ENCRYPTION_KEY: TEST_KEY };
+  const result = await encryptEmail(env, 'user@example.com');
+  assert.ok(result.startsWith('enc:'), `expected enc: prefix, got: ${result.slice(0, 20)}`);
+  assert.notEqual(result, 'user@example.com');
+});
+
+test('decryptEmail: round-trips to the original plaintext', async () => {
+  const env = { DATA_ENCRYPTION_KEY: TEST_KEY };
+  const plaintext = 'user@example.com';
+  const encrypted = await encryptEmail(env, plaintext);
+  const decrypted = await decryptEmail(env, encrypted);
+  assert.equal(decrypted, plaintext);
+});
+
+test('decryptEmail: legacy plaintext (no enc: prefix) returns unchanged', async () => {
+  const env = { DATA_ENCRYPTION_KEY: TEST_KEY };
+  const result = await decryptEmail(env, 'legacy@example.com');
+  assert.equal(result, 'legacy@example.com');
+});
+
+test('decryptEmail: invalid ciphertext returns empty string', async () => {
+  const env = { DATA_ENCRYPTION_KEY: TEST_KEY };
+  const result = await decryptEmail(env, 'enc:invalidbase64:alsoinvalid');
+  assert.equal(result, '');
+});
+
+test('email encryption: creating a comment with DATA_ENCRYPTION_KEY stores enc:-prefixed value', async () => {
+  const db = createStatefulMockD1();
+  const env = makeEnv(db, { DATA_ENCRYPTION_KEY: TEST_KEY });
+
+  const res = await postComment(env, {
+    ...VALID_COMMENT_BODY,
+    pageUrl: 'https://example.com/test',
+    email: 'secret@example.com',
+  });
+  assert.equal(res.status, 201);
+
+  // Find the INSERT into post_comments in the recorded statements
+  const insertStmt = db.allStatements.find(
+    (s) => s.kind === 'run' && /INSERT INTO post_comments/i.test(s.sql)
+  );
+  assert.ok(insertStmt, 'expected an INSERT into post_comments');
+
+  // The author_email is the 6th bind arg (index 5): path, parentId, pageUrl, pageTitle, nickname, email, ...
+  const storedEmail = insertStmt.args[5];
+  assert.ok(storedEmail, 'expected a non-null stored email');
+  assert.ok(String(storedEmail).startsWith('enc:'), `expected enc: prefix on stored email, got: ${String(storedEmail).slice(0, 20)}`);
+  assert.ok(!String(storedEmail).includes('secret@example.com'), 'stored email must not contain plaintext');
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 (F-08): sanitizeErrorForLog
+// ---------------------------------------------------------------------------
+
+import { sanitizeErrorForLog } from '../src/worker.js';
+
+test('sanitizeErrorForLog: Error instance returns only the name', () => {
+  assert.equal(sanitizeErrorForLog(new Error('secret stack trace')), 'Error');
+});
+
+test('sanitizeErrorForLog: non-Error value returns UnknownError', () => {
+  assert.equal(sanitizeErrorForLog('not an error'), 'UnknownError');
+});
+
+test('sanitizeErrorForLog: null returns UnknownError', () => {
+  assert.equal(sanitizeErrorForLog(null), 'UnknownError');
+});

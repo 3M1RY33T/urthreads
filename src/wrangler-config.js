@@ -22,7 +22,7 @@ const DEFAULTS = {
   databaseId: "",
   allowedOrigins: "http://localhost:8000,http://[::1]:8000",
   allowedOriginsStaging: "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787",
-  allowedOriginsProd: "http://localhost:8000,http://[::1]:8000",
+  allowedOriginsProd: "https://your-production-site.example.com",
   adminSessionTtlSeconds: "3600",
   maxCommentsPerPost: "100",
   workerUrl: "",
@@ -45,6 +45,11 @@ function tomlValue(key, value) {
 
 function normalizeBooleanText(value) {
   return String(value).trim().toLowerCase() === "false" ? "false" : "true";
+}
+
+function containsLocalhost(allowedOrigins) {
+  const text = String(allowedOrigins || "");
+  return /localhost|127\.0\.0\.1|\[::1\]/.test(text);
 }
 
 function buildWranglerTomlContent(config = {}) {
@@ -102,6 +107,9 @@ function buildWranglerTomlContent(config = {}) {
     `MAX_COMMENTS_PER_POST = ${tomlString(maxCommentsPerPost)}`,
     "",
     "[env.production.vars]",
+    ...(containsLocalhost(allowedOriginsProd)
+      ? ["# WARNING: localhost origins detected in production config. Replace with your actual production URL."]
+      : []),
     `ALLOWED_ORIGINS = ${tomlString(allowedOriginsProd)}`,
     `WORKER_NAME = ${tomlString(productionWorkerName)}`,
     `WORKER_URL = ${tomlString(config.productionWorkerUrl || workerUrl)}`,

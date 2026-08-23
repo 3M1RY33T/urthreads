@@ -59,6 +59,13 @@ http://localhost:8000/web/index.html
 - Avoid committing secrets, generated `.env` files, real Cloudflare API tokens, or real admin keys.
 - Update `README.md` or the relevant docs file when changing setup, deployment, dashboard, or contribution workflows.
 
+### Branch protection (recommended)
+
+For repositories using this workflow:
+- Require the `test` and `security-scan` CI checks to pass before merging to `main` and `dev`.
+- Require at least one review before merging to `main`.
+- These are recommendations for individually maintained repos; enable them in GitHub Settings → Branches → Branch protection rules.
+
 ## Testing Guidance
 
 Prefer tests that run locally without a Cloudflare account. Use Node's built-in test runner:

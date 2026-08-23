@@ -38,9 +38,13 @@ ADMIN_SESSION_TTL_SECONDS = "3600"
 # The Worker's CSRF origin check makes SameSite=None cross-origin safe.
 ADMIN_SESSION_COOKIE_SAMESITE = ""
 MAX_COMMENTS_PER_POST = "100"
+# Optional: 32-byte base64 key for email encryption at rest. Generate with: openssl rand -base64 32
+# DATA_ENCRYPTION_KEY = ""
 
 [env.production.vars]
-ALLOWED_ORIGINS = "http://localhost:8000,http://[::1]:8000"
+# IMPORTANT: Set this to your actual production site URL(s).
+# Do NOT use localhost origins in production.
+ALLOWED_ORIGINS = "https://your-production-site.example.com"
 WORKER_NAME = "urthreads-worker-prod"
 WORKER_URL = ""
 D1_DATABASE_NAME = "your-threads"

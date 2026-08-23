@@ -37,7 +37,7 @@ test("wrangler defaults allowed origins to localhost-only values", () => {
   const content = buildWranglerTomlContent({});
 
   assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS"), "http://localhost:8000,http://[::1]:8000");
-  assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS", "production"), "http://localhost:8000,http://[::1]:8000");
+  assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS", "production"), "https://your-production-site.example.com");
   assert.strictEqual(
     getWranglerValue(content, "ALLOWED_ORIGINS", "staging"),
     "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787"
@@ -195,6 +195,28 @@ test("hides sensitive values from cli get unless --show-sensitive is passed", as
     output: { write: (message) => shownWrites.push(message) },
   });
   assert.ok(shownWrites.join("").includes("ADMIN_API_KEY=supersecret"));
+});
+
+test("includes localhost warning when production origins contain localhost", () => {
+  const content = buildWranglerTomlContent({
+    allowedOriginsProd: "http://localhost:8000",
+  });
+
+  assert.ok(
+    content.includes("# WARNING: localhost origins detected in production config. Replace with your actual production URL."),
+    "expected localhost warning comment in production section"
+  );
+});
+
+test("does not include localhost warning when production origins are not localhost", () => {
+  const content = buildWranglerTomlContent({
+    allowedOriginsProd: "https://example.com",
+  });
+
+  assert.ok(
+    !content.includes("# WARNING: localhost origins detected in production config."),
+    "did not expect localhost warning comment for non-localhost production origins"
+  );
 });
 
 test("hides sensitive values from cli list unless --show-sensitive is passed", async () => {

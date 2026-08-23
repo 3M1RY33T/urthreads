@@ -226,6 +226,26 @@ urthreads admin-session --ttl 30m --toml ./wrangler.toml
 
 `ADMIN_SESSION_TTL_SECONDS` is clamped between 900 and 3600 seconds by the Worker. The command updates `.env`, updates `wrangler.toml` when available, and offers to deploy the Worker so the new lifetime takes effect.
 
+### Email Encryption At Rest
+
+```env
+DATA_ENCRYPTION_KEY=
+```
+
+When `DATA_ENCRYPTION_KEY` is set (a 32-byte base64 string), the Worker encrypts `author_email` values with AES-GCM before storing them in D1. Encrypted values are prefixed with `enc:` and decrypted transparently when listed via the admin API. Generate a key with:
+
+```bash
+openssl rand -base64 32
+```
+
+Set it as a Worker secret:
+
+```bash
+wrangler secret put DATA_ENCRYPTION_KEY
+```
+
+Leaving `DATA_ENCRYPTION_KEY` unset means emails are stored in plaintext — this is backward compatible with existing deployments. Existing plaintext emails are returned unchanged by the admin API until they are re-saved (e.g., via a new comment).
+
 The session cookie is `__Host-urthreads_admin_session`, set with `HttpOnly`, `Secure`, and `Path=/`. `SameSite` is automatic (`Lax` for same-origin use, `None` for cross-origin dashboards) or controlled by `ADMIN_SESSION_COOKIE_SAMESITE`.
 
 ## Optional Runtime Values

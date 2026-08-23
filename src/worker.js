@@ -95,6 +95,104 @@ function normalizeOptionalText(value, maxLength) {
   return text.length <= maxLength ? text : "";
 }
 
+/**
+ * Normalize and validate a page URL — only http/https protocols allowed.
+ * Returns the trimmed string or "" if invalid.
+ */
+function normalizePageUrl(value, maxLength) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text.length > maxLength) return "";
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    return "";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+  return text;
+}
+
+/**
+ * Sanitize error objects for logging — never include message or stack.
+ */
+function sanitizeErrorForLog(error) {
+  if (error instanceof Error) return error.name;
+  return "UnknownError";
+}
+
+// --- Email encryption at rest (AES-GCM, opt-in via DATA_ENCRYPTION_KEY) -----
+
+let cachedEncryptionKey = null;
+let cachedKeyMaterial = null;
+
+async function getEmailEncryptionKey(env) {
+  const material = env?.DATA_ENCRYPTION_KEY;
+  if (!material) return null;
+  if (cachedKeyMaterial === material && cachedEncryptionKey) return cachedEncryptionKey;
+  const encoder = new TextEncoder();
+  cachedEncryptionKey = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(material),
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  cachedKeyMaterial = material;
+  return cachedEncryptionKey;
+}
+
+function bufToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function base64ToBuf(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function encryptEmail(env, plaintext) {
+  const key = await getEmailEncryptionKey(env);
+  if (!key) return plaintext;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plaintext)
+  );
+  return `enc:${bufToBase64(iv)}:${bufToBase64(ciphertext)}`;
+}
+
+async function decryptEmail(env, stored) {
+  const text = String(stored || "");
+  if (!text.startsWith("enc:")) return text;
+  try {
+    const key = await getEmailEncryptionKey(env);
+    if (!key) return "";
+    const parts = text.split(":"); // enc:<iv>:<ciphertext>
+    if (parts.length < 3) return "";
+    const iv = base64ToBuf(parts[1]);
+    const ciphertext = base64ToBuf(parts.slice(2).join(":"));
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    return "";
+  }
+}
+
 function normalizeDeniedKeyword(value) {
   return String(value || "")
     .trim()
@@ -165,7 +263,7 @@ async function recordEngagementEvent(env, eventType, path, commentId = null) {
       .bind(eventType, path, commentId)
       .run();
   } catch (error) {
-    console.error("Unable to record engagement event:", error);
+    console.error("Unable to record engagement event: " + sanitizeErrorForLog(error));
   }
 }
 
@@ -547,7 +645,7 @@ async function getDeniedKeywordMatch(env, fields) {
   try {
     keywords = await listDeniedKeywords(env);
   } catch (error) {
-    console.error("Unable to load denied keywords:", error);
+    console.error("Unable to load denied keywords: " + sanitizeErrorForLog(error));
     return "";
   }
 
@@ -613,7 +711,7 @@ async function recordAdminAuditLog(env, request, url, event) {
       )
       .run();
   } catch (error) {
-    console.error("Unable to record admin audit log:", error);
+    console.error("Unable to record admin audit log: " + sanitizeErrorForLog(error));
   }
 }
 
@@ -755,7 +853,7 @@ async function createComment(env, data) {
       data.pageUrl,
       data.pageTitle,
       data.nickname,
-      data.email || null,
+      data.email ? (await encryptEmail(env, data.email)) : null,
       data.website || null,
       data.content,
       status
@@ -951,7 +1049,7 @@ async function handleComments(request, env, url) {
     }
 
     const path = normalizePath(payload.path);
-    const pageUrl = normalizeText(payload.pageUrl, 1000);
+    const pageUrl = normalizePageUrl(payload.pageUrl, 1000);
     const pageTitle = normalizeText(payload.pageTitle, 300);
     const nickname = normalizeText(payload.nickname, 80);
     const email = normalizeOptionalText(payload.email, 254);
@@ -1007,7 +1105,7 @@ async function handleComments(request, env, url) {
         return jsonResponse(request, env, { error: message }, 400);
       }
       const safeBody = buildSafeErrorResponse(error);
-      console.error(`Comment create error [${safeBody.correlationId}]:`, error);
+      console.error(`Comment create error [${safeBody.correlationId}]: ${sanitizeErrorForLog(error)}`);
       return jsonResponse(request, env, safeBody, 500);
     }
   }
@@ -1164,23 +1262,27 @@ async function listAdminComments(env, url) {
 
   const { results } = await statement.bind(...bindings, limit).all();
 
-  return (results || []).map((comment) => ({
-    id: comment.id,
-    path: comment.path,
-    parentId: comment.parent_id || null,
-    parentAuthorName: comment.parent_author_name || "",
-    parentContent: comment.parent_content || "",
-    pageUrl: comment.page_url,
-    pageTitle: comment.page_title,
-    authorName: comment.author_name,
-    authorEmail: comment.author_email || "",
-    content: comment.content,
-    likesCount: Number(comment.likes_count || 0),
-    status: comment.status,
-    hiddenAt: formatTimestamp(comment.hidden_at),
-    createdAt: formatTimestamp(comment.created_at),
-    updatedAt: formatTimestamp(comment.updated_at),
-  }));
+  const comments = [];
+  for (const comment of (results || [])) {
+    comments.push({
+      id: comment.id,
+      path: comment.path,
+      parentId: comment.parent_id || null,
+      parentAuthorName: comment.parent_author_name || "",
+      parentContent: comment.parent_content || "",
+      pageUrl: comment.page_url,
+      pageTitle: comment.page_title,
+      authorName: comment.author_name,
+      authorEmail: await decryptEmail(env, comment.author_email || ""),
+      content: comment.content,
+      likesCount: Number(comment.likes_count || 0),
+      status: comment.status,
+      hiddenAt: formatTimestamp(comment.hidden_at),
+      createdAt: formatTimestamp(comment.created_at),
+      updatedAt: formatTimestamp(comment.updated_at),
+    });
+  }
+  return comments;
 }
 
 async function updateCommentStatus(env, id, status) {
@@ -2032,6 +2134,14 @@ async function handleAdmin(request, env, url) {
 /**
  * Main worker handler
  */
+export {
+  normalizePageUrl,
+  sanitizeErrorForLog,
+  getEmailEncryptionKey,
+  encryptEmail,
+  decryptEmail,
+};
+
 export default {
   async fetch(request, env) {
     try {
@@ -2069,7 +2179,7 @@ export default {
       return jsonResponse(request, env, { error: "Not found." }, 404);
     } catch (error) {
       const safeBody = buildSafeErrorResponse(error);
-      console.error(`Worker error [${safeBody.correlationId}]:`, error);
+      console.error(`Worker error [${safeBody.correlationId}]: ${sanitizeErrorForLog(error)}`);
       const response = jsonResponse(request, env, safeBody, 500);
 
       // A throw inside handleAdmin currently skips recordAdminAuditLog, so the
