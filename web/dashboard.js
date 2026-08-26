@@ -132,6 +132,21 @@
     return `${state.workerUrl}${path}`;
   }
 
+  // True for a plain-HTTP loopback worker origin (localhost/127.0.0.1/[::1]).
+  // Mirrors src/worker-security.mjs isLocalHttpOrigin: brackets stripped so the
+  // browser never gets told to "deploy again" for a local worker.
+  function isLocalHttpWorkerUrl(workerUrl) {
+    if (!workerUrl) return false;
+    try {
+      const url = new URL(workerUrl);
+      if (url.protocol !== 'http:') return false;
+      const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    } catch (error) {
+      return false;
+    }
+  }
+
   function canAttemptCookieSession(workerUrl = state.workerUrl) {
     if (!workerUrl || !window.location.origin || window.location.origin === 'null') {
       return false;
@@ -139,7 +154,13 @@
 
     try {
       const url = new URL(workerUrl);
-      return url.protocol === 'https:' || url.protocol === 'http:';
+      if (url.protocol === 'https:') {
+        return true;
+      }
+      if (url.protocol === 'http:') {
+        return isLocalHttpWorkerUrl(workerUrl);
+      }
+      return false;
     } catch (error) {
       return false;
     }
@@ -540,6 +561,9 @@
         throw new Error('The deployed Worker does not have ADMIN_API_KEY set. Run wrangler secret put ADMIN_API_KEY, paste your admin key, then try again.');
       }
       if (response.status === 401 && payload.reason === 'admin_key_expired') {
+        if (isLocalHttpWorkerUrl(state.workerUrl)) {
+          throw new Error('The local Worker says this admin key is expired. Run `npm run setup:dev` to reset .dev.vars, then restart `npm run dev`.');
+        }
         throw new Error('The deployed Worker says this admin key is expired. Generate a new key or update ADMIN_API_KEY_EXPIRES_AT, then deploy again.');
       }
       if (response.status === 401 && payload.reason === 'invalid_admin_key') {
@@ -1663,6 +1687,16 @@
       return;
     }
 
+    // Fail closed on tampered sessionStorage: a stored worker URL that fails
+    // the scheme gate is treated as no session and discarded before any
+    // network request (verifyCookieSession also gates on canAttemptCookieSession).
+    if (!canAttemptCookieSession(state.workerUrl)) {
+      clearAdminSession({ clearWorkerUrl: true });
+      setStatus('Saved worker URL is not a secure session origin.', true);
+      showAuthPrompt('That worker URL is not allowed for secure sessions. Use https, or http://localhost, http://127.0.0.1, or http://[::1] for local development.');
+      return;
+    }
+
     setSessionWorker('loading');
     setStatus('Restoring session...');
     if (await verifyCookieSession()) {
@@ -1683,6 +1717,12 @@
 
     if (!workerUrl || !adminKey) {
       setAuthStatus('Worker URL and admin key are required.', true);
+      return;
+    }
+
+    if (!canAttemptCookieSession(workerUrl)) {
+      setAuthStatus('Secure sessions require https. http is allowed only for localhost, 127.0.0.1, or [::1].', true);
+      elements.workerUrl.focus();
       return;
     }
 

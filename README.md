@@ -21,7 +21,8 @@ Special thanks to [lostinurarms1](https://www.deviantart.com/lostinurarms1) for 
 - Supports denied keywords for automatic rejection.
 - Provides a static admin dashboard for moderation, analytics, posts, logs, and Worker metadata.
 - Provides CLI tools for setup, env syncing, admin keys, sessions, dashboard builds, cleanup, stats, and D1 checks.
-- Uses an `HttpOnly`, `Secure` admin session cookie after the admin key is submitted once.
+- Secures the admin dashboard: `__Host-` `HttpOnly` session cookies, a CSRF origin check on every admin mutation, and login rate-limited to 5 failed attempts per 15 minutes per IP.
+- Rate-limits public likes and comments per IP with D1-backed counters, and can encrypt commenter emails at rest (AES-GCM).
 
 ## Quick Start
 
@@ -143,14 +144,22 @@ urthreads delete-worker --name urthreads-worker
 
 ## Development
 
+Requires Node 20+ (see `engines` in `package.json`).
+
 ```bash
 npm test
 npm run check
-wrangler dev
-python3 -m http.server 8000
 ```
 
-Serve the dashboard at `http://localhost:8000/web/index.html` or `http://[::1]:8000/web/index.html`. The exact browser origin must be in `ALLOWED_ORIGINS` for cookie sessions.
+For local Worker + dashboard development (no Cloudflare account needed):
+
+```bash
+npm install
+npm run setup:dev   # creates .dev.vars (admin key, never-expiring), initializes local D1
+npm run dev         # wrangler dev on http://localhost:8787
+```
+
+Serve the dashboard at `http://localhost:8000/web/index.html` or `http://[::1]:8000/web/index.html` (run `python3 -m http.server 8000` in a second terminal). The exact browser origin must be in `ALLOWED_ORIGINS` for cookie sessions; `http://localhost:8000` is included in `wrangler.toml` by default. `npm run setup:dev` prints the admin key to paste into the dashboard.
 
 ## More Docs
 

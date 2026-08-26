@@ -14,7 +14,7 @@ This project is a self-hosted Cloudflare Worker, D1 schema, browser client, CLI,
 
 ## Development Setup
 
-Clone the repository and install dependencies:
+Requires Node 20+ (see `engines` in `package.json`). Clone the repository and install dependencies:
 
 ```bash
 npm install
@@ -33,13 +33,15 @@ npm test
 npm run check
 ```
 
-For Worker development:
+For local Worker + dashboard development (no Cloudflare account needed):
 
 ```bash
-wrangler dev
+npm install
+npm run setup:dev    # creates .dev.vars (admin key, never-expiring), initializes local D1
+npm run dev          # wrangler dev on http://localhost:8787
 ```
 
-For dashboard or static example development:
+Open a second terminal for the static dashboard/example server:
 
 ```bash
 python3 -m http.server 8000
@@ -51,6 +53,14 @@ Then open:
 http://localhost:8000/web/index.html
 ```
 
+Or the multi-page example pointed at the local Worker:
+
+```text
+http://localhost:8000/examples/multi-page-test/index.html?worker=http://localhost:8787
+```
+
+`npm run setup:dev` prints the admin key to paste into the dashboard when it prompts. `ALLOWED_ORIGINS` already includes `http://localhost:8000` (see `wrangler.toml`), so the cookie session works locally without extra config.
+
 ## Pull Request Guidelines
 
 - Keep pull requests focused on one behavior or documentation area.
@@ -58,6 +68,13 @@ http://localhost:8000/web/index.html
 - Add or update tests when changing CLI parsing, configuration generation, SQL generation, moderation behavior, or dashboard data handling.
 - Avoid committing secrets, generated `.env` files, real Cloudflare API tokens, or real admin keys.
 - Update `README.md` or the relevant docs file when changing setup, deployment, dashboard, or contribution workflows.
+
+### Branch protection (recommended)
+
+For repositories using this workflow:
+- Require the `test` and `security-scan` CI checks to pass before merging to `main` and `dev`.
+- Require at least one review before merging to `main`.
+- These are recommendations for individually maintained repos; enable them in GitHub Settings → Branches → Branch protection rules.
 
 ## Testing Guidance
 

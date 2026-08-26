@@ -53,8 +53,46 @@ Out of scope:
 
 When deploying `urthreads`:
 
-- Use exact `ALLOWED_ORIGINS`; avoid `*` for dashboard deployments.
-- Store `ADMIN_API_KEY` as a Worker secret.
-- Use HTTPS for deployed dashboard and client origins.
-- Rotate admin keys after suspected exposure.
+- Use exact `ALLOWED_ORIGINS`; `*` is refused by the CLI and the Worker never honors wildcard CORS on `/admin/*`.
+- Store `ADMIN_API_KEY` as a Worker secret; optionally set `ADMIN_SESSION_SECRET` (at least 32 bytes) so session tokens are signed independently of the admin key (the Worker falls back to `ADMIN_API_KEY` when it is unset).
+- Use HTTPS for deployed dashboard and client origins; the dashboard rejects plain-http worker origins except `localhost`, `127.0.0.1`, and `[::1]` development.
+- Rotate admin keys after suspected exposure and prefer a finite key expiry (`urthreads admin-key --expires 30d`).
+- Admin mutations are CSRF-protected by an Origin check, and `POST /admin/session` is rate-limited to 5 failed attempts per 15 minutes per client IP (`CF-Connecting-IP`); audit logs record `CF-Connecting-IP` and never trust `X-Forwarded-For`.
+- Logout revokes the session server-side in D1 (`admin_sessions`), so a logged-out session cookie cannot be replayed.
 - Keep Cloudflare account, API token, and D1 permissions scoped to what the deployment needs.
+
+## Cloudflare Rate Limiting Rules (Recommended)
+
+The Worker implements D1-backed rate limiting for public POST endpoints as a
+defense-in-depth measure. For production deployments, also configure Cloudflare
+edge rate limiting rules to block abusive traffic before it reaches the Worker.
+This reduces Worker CPU usage and D1 row churn from bot-driven floods.
+
+### Recommended Rules
+
+| Endpoint | Threshold | Window |
+|---|---|---|
+| `/likes` (POST) | 100 requests | 10 seconds per IP |
+| `/comments/like` (POST) | 100 requests | 10 seconds per IP |
+| `/comments` (POST) | 10 requests | 10 seconds per IP |
+
+### Dashboard Configuration Steps
+
+1. Log in to the [Cloudflare dashboard](https://dash.cloudflare.com).
+2. Select your domain (or the Workers route domain).
+3. Navigate to **Security > WAF > Rate limiting rules**.
+4. Click **Create rule** and configure:
+   - **Rule name**: `urthreads-likes-rate-limit`
+   - **If incoming requests match**: Custom filter expression
+     - Field: `URI Path`, Operator: `equals`, Value: `/likes`
+     - AND Field: `Method`, Operator: `equals`, Value: `POST`
+   - **Then take action**: Block
+   - **Rate**: 100 requests per 10 seconds per IP
+5. Repeat for `/comments/like` (100 requests / 10 seconds) and `/comments`
+   (10 requests / 10 seconds).
+6. Save and deploy each rule.
+
+> **Note**: The Worker's D1-backed limits (30 likes/min, 30 comment likes/min,
+> 5 comments/min) are stricter and serve as the application-level boundary.
+> Cloudflare rules should be set higher to catch volumetric attacks early
+> without interfering with legitimate users who are within the Worker limits.

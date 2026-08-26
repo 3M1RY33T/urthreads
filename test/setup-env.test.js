@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 const { test } = require("node:test");
 const {
+  askOriginList,
   buildEndpointUrl,
   buildEnvContent,
   buildDefaultWorkerName,
@@ -397,6 +398,50 @@ test("setup can initialize schema and deploy when worker url is derived", async 
     ["d1", "execute", "threads-example", "--remote", "--file=src/schema.sql"],
     ["deploy"],
   ]);
+});
+
+test("askOriginList rejects wildcard origins and re-prompts", async () => {
+  const questions = [];
+  const answers = ["*", "https://example.com,https://www.example.com"];
+  const prompter = {
+    ask: async (question, defaultValue = "") => {
+      questions.push(question);
+      return answers.shift() || defaultValue;
+    },
+  };
+  const writes = [];
+  const value = await askOriginList(
+    prompter,
+    "Allowed origins",
+    "http://localhost:8000",
+    { write: (message) => writes.push(message) }
+  );
+
+  assert.strictEqual(value, "https://example.com,https://www.example.com");
+  assert.strictEqual(questions.length, 2);
+  assert.ok(writes.join("").includes("not '*'"));
+});
+
+test("collectConfig re-prompts wildcard origin input", async () => {
+  const writes = [];
+  const originAnswers = ["*", "https://prod.example"];
+  const prompter = {
+    ask: async (question, defaultValue = "") => {
+      if (question === "Production allowed origins") return originAnswers.shift() || defaultValue;
+      return defaultValue;
+    },
+    askHidden: async (question, defaultValue = "") => defaultValue,
+    confirm: async (question, defaultValue = true) => false,
+  };
+
+  const config = await collectConfig(
+    prompter,
+    { write: (message) => writes.push(message) },
+    { useWrangler: false }
+  );
+
+  assert.strictEqual(config.allowedOriginsProd, "https://prod.example");
+  assert.ok(writes.join("").includes("Allowed origins must be exact http or https origins, not '*'"));
 });
 
 test("setup does not offer deployment when worker url cannot be derived", async () => {

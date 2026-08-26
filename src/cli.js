@@ -11,7 +11,7 @@
  *   node cli.js stats                - Show database statistics
  */
 
-const { execSync } = require("child_process");
+const { spawnSync } = require("child_process");
 const { formatHelp } = require("./help-format");
 
 // Color codes for terminal output
@@ -83,10 +83,27 @@ function normalizeStatus(value, fallback = "all") {
 }
 
 /**
- * Generate the wrangler command to execute
+ * Validate database name — reject anything that could enable command injection.
+ * Only alphanumeric characters, underscores, and hyphens are allowed.
+ */
+function validateDbName(name) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error("Invalid database name: only letters, numbers, underscores, and hyphens are allowed");
+  }
+  return name;
+}
+
+/**
+ * Generate the wrangler command to execute (display only)
  */
 function generateWranglerCommand(sqlQuery, dbName) {
-  return `wrangler d1 execute ${dbName} --remote --command "${sqlQuery.replace(/"/g, '\\"')}"`;
+  try {
+    validateDbName(dbName);
+  } catch (e) {
+    error(e.message);
+  }
+  const escapedSql = sqlQuery.replace(/"/g, '\\"');
+  return `wrangler d1 execute ${dbName} --remote --command "${escapedSql}"`;
 }
 
 /**
@@ -437,24 +454,35 @@ async function main(argv = process.argv.slice(2), options = {}) {
 
   log("\n" + description, "blue");
 
-  const fullCmd = `D1_DATABASE_NAME=${dbName} wrangler d1 execute ${dbName} --remote --command "${sqlQuery.replace(/"/g, '\\"')}"`;
+  try {
+    validateDbName(dbName);
+  } catch (e) {
+    error(e.message);
+  }
+
+  const cmdArgs = ["d1", "execute", dbName, "--remote", "--command", sqlQuery];
 
   if (command === "health" || execute) {
     log("\nRunning Wrangler command...", "blue");
-    try {
-      const output = execSync(fullCmd, { encoding: "utf-8", stdio: "pipe" });
-      log("Command succeeded:\n" + output, "green");
-      return;
-    } catch (error) {
-      error(`Command failed: ${error.message}`);
+    const runner = options.runner || spawnSync;
+    const result = runner("wrangler", cmdArgs, {
+      encoding: "utf-8",
+      stdio: "pipe",
+      env: { ...process.env, D1_DATABASE_NAME: dbName },
+    });
+    if (result.status !== 0) {
+      log(result.stderr, "red");
+      error(`Command failed with exit code ${result.status}`);
     }
+    log("Command succeeded:\n" + result.stdout, "green");
+    return;
   }
 
   const wranglerCmd = generateWranglerCommand(sqlQuery, dbName);
   log("\nExecuting: " + wranglerCmd, "cyan");
   log("\nNote: Copy-paste the command above if you prefer to run it manually", "yellow");
   log("Or run this to execute directly:\n", "yellow");
-  log(fullCmd, "green");
+  log(`D1_DATABASE_NAME=${dbName} wrangler ${cmdArgs.join(" ")}`, "green");
   log("\n");
 }
 
@@ -467,6 +495,7 @@ module.exports = {
   parseArgs,
   showHelp,
   sqlString,
+  validateDbName,
   generateWranglerCommand,
   getSqlPendingComments,
   getSqlApproveComment,

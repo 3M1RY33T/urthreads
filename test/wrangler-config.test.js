@@ -37,7 +37,7 @@ test("wrangler defaults allowed origins to localhost-only values", () => {
   const content = buildWranglerTomlContent({});
 
   assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS"), "http://localhost:8000,http://[::1]:8000");
-  assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS", "production"), "http://localhost:8000,http://[::1]:8000");
+  assert.strictEqual(getWranglerValue(content, "ALLOWED_ORIGINS", "production"), "https://your-production-site.example.com");
   assert.strictEqual(
     getWranglerValue(content, "ALLOWED_ORIGINS", "staging"),
     "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787"
@@ -154,4 +154,93 @@ test("creates wrangler toml through cli with provided config", async () => {
   const content = fs.readFileSync(tomlPath, "utf8");
   assert.strictEqual(getWranglerValue(content, "name"), "created-worker");
   assert.strictEqual(getWranglerValue(content, "database_name"), "created-db");
+});
+
+test("refuses to store sensitive wrangler keys through cli set", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  const original = buildWranglerTomlContent({});
+  fs.writeFileSync(tomlPath, original, "utf8");
+
+  await assert.rejects(
+    main(["set", "ADMIN_API_KEY", "supersecret", "--file", tomlPath], {
+      commandName: "urthreads wrangler",
+      output: { write: () => {} },
+    }),
+    /Refusing to store sensitive value ADMIN_API_KEY.*wrangler secret put/
+  );
+
+  assert.strictEqual(fs.readFileSync(tomlPath, "utf8"), original);
+});
+
+test("hides sensitive values from cli get unless --show-sensitive is passed", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  let content = buildWranglerTomlContent({});
+  content = updateWranglerToml(content, "ADMIN_API_KEY", "supersecret");
+  fs.writeFileSync(tomlPath, content, "utf8");
+
+  const hiddenWrites = [];
+  await main(["get", "ADMIN_API_KEY", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => hiddenWrites.push(message) },
+  });
+  const hiddenOutput = hiddenWrites.join("");
+  assert.ok(hiddenOutput.includes("ADMIN_API_KEY=(hidden)"));
+  assert.ok(!hiddenOutput.includes("supersecret"));
+
+  const shownWrites = [];
+  await main(["get", "ADMIN_API_KEY", "--show-sensitive", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => shownWrites.push(message) },
+  });
+  assert.ok(shownWrites.join("").includes("ADMIN_API_KEY=supersecret"));
+});
+
+test("includes localhost warning when production origins contain localhost", () => {
+  const content = buildWranglerTomlContent({
+    allowedOriginsProd: "http://localhost:8000",
+  });
+
+  assert.ok(
+    content.includes("# WARNING: localhost origins detected in production config. Replace with your actual production URL."),
+    "expected localhost warning comment in production section"
+  );
+});
+
+test("does not include localhost warning when production origins are not localhost", () => {
+  const content = buildWranglerTomlContent({
+    allowedOriginsProd: "https://example.com",
+  });
+
+  assert.ok(
+    !content.includes("# WARNING: localhost origins detected in production config."),
+    "did not expect localhost warning comment for non-localhost production origins"
+  );
+});
+
+test("hides sensitive values from cli list unless --show-sensitive is passed", async () => {
+  const tempDir = makeTempDir();
+  const tomlPath = path.join(tempDir, "wrangler.toml");
+  let content = buildWranglerTomlContent({});
+  content = updateWranglerToml(content, "ADMIN_API_KEY", "supersecret");
+  content = updateWranglerToml(content, "ALLOWED_ORIGINS", "https://example.com");
+  fs.writeFileSync(tomlPath, content, "utf8");
+
+  const writes = [];
+  await main(["list", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => writes.push(message) },
+  });
+  const output = writes.join("");
+  assert.ok(output.includes("vars.ALLOWED_ORIGINS=https://example.com"));
+  assert.ok(output.includes("vars.ADMIN_API_KEY=(hidden)"));
+  assert.ok(!output.includes("supersecret"));
+
+  const shownWrites = [];
+  await main(["list", "--show-sensitive", "--file", tomlPath], {
+    commandName: "urthreads wrangler",
+    output: { write: (message) => shownWrites.push(message) },
+  });
+  assert.ok(shownWrites.join("").includes("vars.ADMIN_API_KEY=supersecret"));
 });

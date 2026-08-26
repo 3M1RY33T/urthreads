@@ -22,7 +22,7 @@ const DEFAULTS = {
   databaseId: "",
   allowedOrigins: "http://localhost:8000,http://[::1]:8000",
   allowedOriginsStaging: "http://localhost:3000,http://localhost:8000,http://[::1]:8000,http://localhost:8787",
-  allowedOriginsProd: "http://localhost:8000,http://[::1]:8000",
+  allowedOriginsProd: "https://your-production-site.example.com",
   adminSessionTtlSeconds: "3600",
   maxCommentsPerPost: "100",
   workerUrl: "",
@@ -45,6 +45,11 @@ function tomlValue(key, value) {
 
 function normalizeBooleanText(value) {
   return String(value).trim().toLowerCase() === "false" ? "false" : "true";
+}
+
+function containsLocalhost(allowedOrigins) {
+  const text = String(allowedOrigins || "");
+  return /localhost|127\.0\.0\.1|\[::1\]/.test(text);
 }
 
 function buildWranglerTomlContent(config = {}) {
@@ -102,6 +107,9 @@ function buildWranglerTomlContent(config = {}) {
     `MAX_COMMENTS_PER_POST = ${tomlString(maxCommentsPerPost)}`,
     "",
     "[env.production.vars]",
+    ...(containsLocalhost(allowedOriginsProd)
+      ? ["# WARNING: localhost origins detected in production config. Replace with your actual production URL."]
+      : []),
     `ALLOWED_ORIGINS = ${tomlString(allowedOriginsProd)}`,
     `WORKER_NAME = ${tomlString(productionWorkerName)}`,
     `WORKER_URL = ${tomlString(config.productionWorkerUrl || workerUrl)}`,
@@ -250,6 +258,10 @@ function normalizeWranglerKey(value) {
   return lower;
 }
 
+function isSensitiveWranglerKey(key) {
+  return /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(String(key || ""));
+}
+
 function headerName(line) {
   const match = String(line).trim().match(/^\[\[?([^\]]+)\]\]?$/);
   return match ? match[1] : "";
@@ -396,6 +408,7 @@ function parseArgs(argv = []) {
     value: "",
     values: [],
     help: false,
+    showSensitive: false,
     viewer: "",
   };
 
@@ -423,6 +436,8 @@ function parseArgs(argv = []) {
       index += 1;
     } else if (arg.startsWith("--viewer=")) {
       result.viewer = arg.slice("--viewer=".length);
+    } else if (arg === "--show-sensitive") {
+      result.showSensitive = true;
     } else {
       positional.push(arg);
     }
@@ -466,8 +481,8 @@ urthreads Wrangler Config
 USAGE:
   ${commandName} init
   ${commandName} set <KEY> <VALUE> [--env staging|production]
-  ${commandName} get <KEY> [--env staging|production]
-  ${commandName} list
+  ${commandName} get <KEY> [--show-sensitive] [--env staging|production]
+  ${commandName} list [--show-sensitive]
   ${commandName} open [--viewer <command>]
 
 KEYS:
@@ -475,6 +490,11 @@ KEYS:
   database_name, database_id
   ALLOWED_ORIGINS, WORKER_NAME, WORKER_URL, D1_DATABASE_NAME
   ADMIN_API_KEY_EXPIRES_AT, ADMIN_SESSION_TTL_SECONDS, MAX_COMMENTS_PER_POST
+
+SENSITIVE KEYS:
+  Keys containing KEY, TOKEN, SECRET, PASSWORD, or CREDENTIAL are refused by
+  set and print (hidden) from get/list unless --show-sensitive is passed.
+  Store Worker secrets with: wrangler secret put
 
 `));
 }
@@ -522,12 +542,16 @@ async function main(argv = process.argv.slice(2), options = {}) {
     if (!args.key || !args.value) {
       throw new Error("Provide a key and value to set.");
     }
+    const normalizedKey = normalizeWranglerKey(args.key);
+    if (isSensitiveWranglerKey(normalizedKey)) {
+      throw new Error(`Refusing to store sensitive value ${normalizedKey} in wrangler.toml. Use \`wrangler secret put\` instead.`);
+    }
     const content = readWranglerToml(filePath);
     const nextContent = updateWranglerToml(content, args.key, args.value, args.envName);
     writeWranglerTomlFile(filePath, nextContent);
     output.write(`Updated ${path.relative(process.cwd(), filePath) || "wrangler.toml"}\n`);
-    output.write(`${normalizeEnvName(args.envName)}.${normalizeWranglerKey(args.key)}=${args.value}\n`);
-    if (normalizeWranglerKey(args.key) === "WORKER_URL") {
+    output.write(`${normalizeEnvName(args.envName)}.${normalizedKey}=${args.value}\n`);
+    if (normalizedKey === "WORKER_URL") {
       const exampleConfigPath = writeExampleWorkerConfig(args.value, {
         generatedBy: "urthreads wrangler set WORKER_URL",
       });
@@ -538,15 +562,18 @@ async function main(argv = process.argv.slice(2), options = {}) {
 
   if (command === "get") {
     if (!args.key) throw new Error("Provide a key to read.");
-    const value = getWranglerValue(readWranglerToml(filePath), args.key, args.envName);
-    output.write(`${normalizeEnvName(args.envName)}.${normalizeWranglerKey(args.key)}=${value}\n`);
+    const normalizedKey = normalizeWranglerKey(args.key);
+    const value = getWranglerValue(readWranglerToml(filePath), normalizedKey, args.envName);
+    const shown = isSensitiveWranglerKey(normalizedKey) && !args.showSensitive ? "(hidden)" : value;
+    output.write(`${normalizeEnvName(args.envName)}.${normalizedKey}=${shown}\n`);
     return;
   }
 
   if (command === "list") {
     const values = listWranglerValues(readWranglerToml(filePath));
     for (const item of values) {
-      output.write(`${item.section}.${item.key}=${item.value}\n`);
+      const shown = isSensitiveWranglerKey(item.key) && !args.showSensitive ? "(hidden)" : item.value;
+      output.write(`${item.section}.${item.key}=${shown}\n`);
     }
     return;
   }

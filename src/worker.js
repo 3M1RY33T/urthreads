@@ -14,54 +14,43 @@
  * - ADMIN_SESSION_TTL_SECONDS: Optional admin dashboard session TTL (default 3600)
  */
 
+import {
+  getCorsHeaders,
+  isAdminMutation,
+  checkCsrf,
+  getClientIp,
+  createAdminRateLimiter,
+  createAdminSessionToken,
+  buildAdminSessionCookie,
+  buildExpiredAdminSessionCookie,
+  getAdminKeyAccess,
+  getAdminAccess,
+  fingerprintCredential,
+  buildSafeErrorResponse,
+} from "./worker-security.mjs";
+
 const jsonHeaders = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
 
-const MAX_COMMENTS_PER_POST = 100;
-const ADMIN_SESSION_COOKIE_NAME = "urthreads_admin_session";
-const DEFAULT_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
-const MIN_ADMIN_SESSION_TTL_SECONDS = 15 * 60;
-const MAX_ADMIN_SESSION_TTL_SECONDS = 60 * 60;
+const ADMIN_LOGIN_MAX_FAILURES = 5;
+const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const PUBLIC_RATE_LIMIT_LIKES = 30;
+const PUBLIC_RATE_LIMIT_COMMENT_LIKES = 30;
+const PUBLIC_RATE_LIMIT_COMMENTS = 5;
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000;
 let commentHiddenColumnReady = false;
 let deniedKeywordsTableReady = false;
+let authAttemptsTableReady = false;
+let publicRateLimitsTableReady = false;
+let adminSessionsTableReady = false;
+const adminLoginLimiter = createAdminRateLimiter({
+  maxFailures: ADMIN_LOGIN_MAX_FAILURES,
+  windowMs: ADMIN_LOGIN_WINDOW_MS,
+});
 
-/**
- * Get CORS headers based on origin
- */
-function getCorsHeaders(request, env) {
-  const origin = request.headers.get("Origin") || "";
 
-  const allowedOrigins = String(env.ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  const hasWildcardOrigin = allowedOrigins.includes("*");
-  const hasExactOrigin = allowedOrigins.includes(origin);
-
-  if (hasWildcardOrigin || hasExactOrigin) {
-    const headers = {
-      "Access-Control-Allow-Origin": hasExactOrigin ? origin : "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, X-Admin-Key",
-      "Vary": "Origin",
-    };
-
-    if (hasExactOrigin && origin) {
-      headers["Access-Control-Allow-Credentials"] = "true";
-    }
-
-    return {
-      ...headers,
-    };
-  }
-
-  return {
-    "Vary": "Origin",
-  };
-}
 
 /**
  * Return JSON response with CORS headers
@@ -104,6 +93,104 @@ function normalizeText(value, maxLength) {
 function normalizeOptionalText(value, maxLength) {
   const text = String(value || "").trim();
   return text.length <= maxLength ? text : "";
+}
+
+/**
+ * Normalize and validate a page URL — only http/https protocols allowed.
+ * Returns the trimmed string or "" if invalid.
+ */
+function normalizePageUrl(value, maxLength) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text.length > maxLength) return "";
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    return "";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+  return text;
+}
+
+/**
+ * Sanitize error objects for logging — never include message or stack.
+ */
+function sanitizeErrorForLog(error) {
+  if (error instanceof Error) return error.name;
+  return "UnknownError";
+}
+
+// --- Email encryption at rest (AES-GCM, opt-in via DATA_ENCRYPTION_KEY) -----
+
+let cachedEncryptionKey = null;
+let cachedKeyMaterial = null;
+
+async function getEmailEncryptionKey(env) {
+  const material = env?.DATA_ENCRYPTION_KEY;
+  if (!material) return null;
+  if (cachedKeyMaterial === material && cachedEncryptionKey) return cachedEncryptionKey;
+  const encoder = new TextEncoder();
+  cachedEncryptionKey = await globalThis.crypto.subtle.importKey(
+    "raw",
+    encoder.encode(material),
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  cachedKeyMaterial = material;
+  return cachedEncryptionKey;
+}
+
+function bufToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function base64ToBuf(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function encryptEmail(env, plaintext) {
+  const key = await getEmailEncryptionKey(env);
+  if (!key) return plaintext;
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await globalThis.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plaintext)
+  );
+  return `enc:${bufToBase64(iv)}:${bufToBase64(ciphertext)}`;
+}
+
+async function decryptEmail(env, stored) {
+  const text = String(stored || "");
+  if (!text.startsWith("enc:")) return text;
+  try {
+    const key = await getEmailEncryptionKey(env);
+    if (!key) return "";
+    const parts = text.split(":"); // enc:<iv>:<ciphertext>
+    if (parts.length < 3) return "";
+    const iv = base64ToBuf(parts[1]);
+    const ciphertext = base64ToBuf(parts.slice(2).join(":"));
+    const decrypted = await globalThis.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    return "";
+  }
 }
 
 function normalizeDeniedKeyword(value) {
@@ -176,7 +263,7 @@ async function recordEngagementEvent(env, eventType, path, commentId = null) {
       .bind(eventType, path, commentId)
       .run();
   } catch (error) {
-    console.error("Unable to record engagement event:", error);
+    console.error("Unable to record engagement event: " + sanitizeErrorForLog(error));
   }
 }
 
@@ -207,6 +294,311 @@ async function ensureDeniedKeywordsTable(env) {
   `).run();
 
   deniedKeywordsTableReady = true;
+}
+
+async function ensureAuthAttemptsTable(env) {
+  if (!env.DB || authAttemptsTableReady) return;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS auth_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_key TEXT NOT NULL,
+      window_start INTEGER NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      lockout_until INTEGER,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (bucket_key, window_start)
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE INDEX IF NOT EXISTS auth_attempts_bucket_key_idx
+      ON auth_attempts (bucket_key, window_start)
+  `).run();
+
+  authAttemptsTableReady = true;
+}
+
+async function getAuthAttemptsBlock(env, bucketKey) {
+  if (!env.DB) return null;
+  await ensureAuthAttemptsTable(env);
+
+  const row = await env.DB.prepare(`
+    SELECT window_start, attempt_count, lockout_until
+    FROM auth_attempts
+    WHERE bucket_key = ?1
+    ORDER BY window_start DESC
+    LIMIT 1
+  `)
+    .bind(bucketKey)
+    .first();
+
+  if (!row) return null;
+
+  const nowMs = Date.now();
+  const lockoutUntil = Number(row.lockout_until || 0);
+  if (lockoutUntil > nowMs) {
+    return {
+      blocked: true,
+      retryAfterSeconds: Math.max(1, Math.ceil((lockoutUntil - nowMs) / 1000)),
+    };
+  }
+
+  const windowStart = Number(row.window_start || 0);
+  if (
+    windowStart > 0 &&
+    nowMs - windowStart < ADMIN_LOGIN_WINDOW_MS &&
+    Number(row.attempt_count || 0) >= ADMIN_LOGIN_MAX_FAILURES
+  ) {
+    return {
+      blocked: true,
+      retryAfterSeconds: Math.max(1, Math.ceil((windowStart + ADMIN_LOGIN_WINDOW_MS - nowMs) / 1000)),
+    };
+  }
+
+  return null;
+}
+
+async function getAuthAttemptsWindowStart(env, bucketKey) {
+  if (!env.DB) return Date.now();
+  await ensureAuthAttemptsTable(env);
+
+  const row = await env.DB.prepare(`
+    SELECT window_start
+    FROM auth_attempts
+    WHERE bucket_key = ?1
+    ORDER BY window_start DESC
+    LIMIT 1
+  `)
+    .bind(bucketKey)
+    .first();
+
+  const nowMs = Date.now();
+  const windowStart = Number(row?.window_start || 0);
+  if (windowStart > 0 && nowMs - windowStart < ADMIN_LOGIN_WINDOW_MS) {
+    return windowStart;
+  }
+  return nowMs;
+}
+
+async function recordAuthAttemptFailure(env, bucketKey, windowStartMs, lockoutUntilMs) {
+  if (!env.DB) return;
+  await ensureAuthAttemptsTable(env);
+
+  await env.DB.prepare(`
+    INSERT INTO auth_attempts (bucket_key, window_start, attempt_count, lockout_until, updated_at)
+    VALUES (?1, ?2, 1, ?3, CURRENT_TIMESTAMP)
+    ON CONFLICT(bucket_key, window_start) DO UPDATE SET
+      attempt_count = attempt_count + 1,
+      lockout_until = ?3,
+      updated_at = CURRENT_TIMESTAMP
+  `)
+    .bind(bucketKey, windowStartMs, lockoutUntilMs)
+    .run();
+}
+
+async function resetAuthAttempts(env, bucketKey) {
+  if (!env.DB) return;
+  await ensureAuthAttemptsTable(env);
+
+  await env.DB.prepare("DELETE FROM auth_attempts WHERE bucket_key = ?1")
+    .bind(bucketKey)
+    .run();
+}
+
+async function ensurePublicRateLimitsTable(env) {
+  if (!env.DB || publicRateLimitsTableReady) return;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS public_rate_limits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucket_key TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      window_start INTEGER NOT NULL,
+      request_count INTEGER NOT NULL DEFAULT 0,
+      lockout_until INTEGER,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (bucket_key, endpoint, window_start)
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE INDEX IF NOT EXISTS public_rate_limits_bucket_idx
+      ON public_rate_limits (bucket_key, endpoint, window_start)
+  `).run();
+
+  publicRateLimitsTableReady = true;
+}
+
+async function checkPublicRateLimit(env, ip, endpoint, maxRequests, windowMs) {
+  if (!env.DB) return { allowed: true };
+  await ensurePublicRateLimitsTable(env);
+
+  const now = Date.now();
+  const bucketKey = `${ip}:${endpoint}`;
+
+  // Check for an active lockout first.
+  const lockoutRow = await env.DB.prepare(`
+    SELECT lockout_until
+    FROM public_rate_limits
+    WHERE bucket_key = ?1 AND endpoint = ?2 AND lockout_until IS NOT NULL
+    ORDER BY lockout_until DESC
+    LIMIT 1
+  `)
+    .bind(bucketKey, endpoint)
+    .first();
+
+  if (lockoutRow && Number(lockoutRow.lockout_until) > now) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((Number(lockoutRow.lockout_until) - now) / 1000));
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  // Find the current window row (most recent window_start within the window).
+  const windowRow = await env.DB.prepare(`
+    SELECT window_start, request_count
+    FROM public_rate_limits
+    WHERE bucket_key = ?1 AND endpoint = ?2
+    ORDER BY window_start DESC
+    LIMIT 1
+  `)
+    .bind(bucketKey, endpoint)
+    .first();
+
+  let windowStart;
+  let currentCount;
+
+  if (windowRow && Number(windowRow.window_start) > 0 && now - Number(windowRow.window_start) < windowMs) {
+    windowStart = Number(windowRow.window_start);
+    currentCount = Number(windowRow.request_count || 0);
+
+    if (currentCount >= maxRequests) {
+      // Lock out for the remaining window duration.
+      const lockoutUntil = windowStart + windowMs;
+      await env.DB.prepare(`
+        INSERT INTO public_rate_limits (bucket_key, endpoint, window_start, request_count, lockout_until, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)
+        ON CONFLICT(bucket_key, endpoint, window_start) DO UPDATE SET
+          lockout_until = ?5,
+          updated_at = CURRENT_TIMESTAMP
+      `)
+        .bind(bucketKey, endpoint, windowStart, currentCount, lockoutUntil)
+        .run();
+
+      const retryAfterSeconds = Math.max(1, Math.ceil((lockoutUntil - now) / 1000));
+      return { allowed: false, retryAfterSeconds };
+    }
+  } else {
+    // Start a new window.
+    windowStart = now;
+    currentCount = 0;
+  }
+
+  // Increment the counter via upsert.
+  await env.DB.prepare(`
+    INSERT INTO public_rate_limits (bucket_key, endpoint, window_start, request_count, lockout_until, updated_at)
+    VALUES (?1, ?2, ?3, 1, NULL, CURRENT_TIMESTAMP)
+    ON CONFLICT(bucket_key, endpoint, window_start) DO UPDATE SET
+      request_count = request_count + 1,
+      updated_at = CURRENT_TIMESTAMP
+  `)
+    .bind(bucketKey, endpoint, windowStart)
+    .run();
+
+  return { allowed: true };
+}
+
+async function ensureAdminSessionsTable(env) {
+  if (!env.DB || adminSessionsTableReady) return;
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      jti TEXT PRIMARY KEY,
+      issued_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE INDEX IF NOT EXISTS admin_sessions_expires_idx
+      ON admin_sessions (expires_at)
+  `).run();
+
+  adminSessionsTableReady = true;
+}
+
+async function persistAdminSession(env, jti, issuedAt, expiresAt) {
+  if (!env.DB) return;
+  await ensureAdminSessionsTable(env);
+
+  await env.DB.prepare(`
+    INSERT INTO admin_sessions (jti, issued_at, expires_at)
+    VALUES (?1, ?2, ?3)
+    ON CONFLICT(jti) DO NOTHING
+  `)
+    .bind(jti, issuedAt, expiresAt)
+    .run();
+}
+
+async function isAdminSessionValid(env, jti) {
+  if (!env.DB) return true;
+  await ensureAdminSessionsTable(env);
+
+  const row = await env.DB.prepare(`
+    SELECT revoked, expires_at
+    FROM admin_sessions
+    WHERE jti = ?1
+  `)
+    .bind(jti)
+    .first();
+
+  if (!row) return false;
+  if (Number(row.revoked) === 1) return false;
+  if (Number(row.expires_at) < Math.floor(Date.now() / 1000)) return false;
+  return true;
+}
+
+async function revokeAdminSession(env, jti) {
+  if (!env.DB) return;
+  await ensureAdminSessionsTable(env);
+
+  await env.DB.prepare("UPDATE admin_sessions SET revoked = 1 WHERE jti = ?1")
+    .bind(jti)
+    .run();
+}
+
+async function pruneExpiredAdminSessions(env) {
+  if (!env.DB) return;
+  await ensureAdminSessionsTable(env);
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  await env.DB.prepare("DELETE FROM admin_sessions WHERE expires_at < ?1")
+    .bind(nowSeconds)
+    .run();
+}
+
+async function validateAdminAccess(request, env) {
+  const access = await getAdminAccess(request, env);
+  if (access.allowed && access.jti) {
+    const valid = await isAdminSessionValid(env, access.jti);
+    if (!valid) {
+      return { allowed: false, fingerprint: access.fingerprint };
+    }
+  }
+  return access;
+}
+
+async function getLoginRetryAfterSeconds(env, ipBucketKey, credBucketKey) {
+  // In-memory fast pre-filter (per-isolate), then the durable D1 boundary.
+  if (adminLoginLimiter.isBlocked(ipBucketKey)) {
+    return adminLoginLimiter.getRetryAfterSeconds(ipBucketKey);
+  }
+
+  const ipBlock = await getAuthAttemptsBlock(env, ipBucketKey);
+  if (ipBlock) return ipBlock.retryAfterSeconds;
+
+  const credBlock = await getAuthAttemptsBlock(env, credBucketKey);
+  if (credBlock) return credBlock.retryAfterSeconds;
+
+  return 0;
 }
 
 async function listDeniedKeywords(env) {
@@ -253,7 +645,7 @@ async function getDeniedKeywordMatch(env, fields) {
   try {
     keywords = await listDeniedKeywords(env);
   } catch (error) {
-    console.error("Unable to load denied keywords:", error);
+    console.error("Unable to load denied keywords: " + sanitizeErrorForLog(error));
     return "";
   }
 
@@ -264,253 +656,9 @@ async function getDeniedKeywordMatch(env, fields) {
   return keywords.find((keyword) => haystack.includes(keyword)) || "";
 }
 
-function isAdminKeyExpired(env, now = Date.now()) {
-  const expiresAt = String(env.ADMIN_API_KEY_EXPIRES_AT || "").trim();
-  const normalized = expiresAt.toLowerCase();
 
-  if (!expiresAt || normalized === "never" || normalized === "none") {
-    return false;
-  }
 
-  const timestamp = Date.parse(expiresAt);
-  if (Number.isNaN(timestamp)) {
-    return true;
-  }
 
-  return timestamp <= now;
-}
-
-function getAdminSessionTtlSeconds(env) {
-  const configuredTtl = Number.parseInt(String(env.ADMIN_SESSION_TTL_SECONDS || ""), 10);
-  if (!Number.isFinite(configuredTtl)) {
-    return DEFAULT_ADMIN_SESSION_TTL_SECONDS;
-  }
-
-  return Math.min(
-    Math.max(configuredTtl, MIN_ADMIN_SESSION_TTL_SECONDS),
-    MAX_ADMIN_SESSION_TTL_SECONDS
-  );
-}
-
-function base64UrlEncodeBytes(bytes) {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function base64UrlEncodeString(value) {
-  return base64UrlEncodeBytes(new TextEncoder().encode(value));
-}
-
-function base64UrlDecodeToBytes(value) {
-  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-function base64UrlDecodeToString(value) {
-  return new TextDecoder().decode(base64UrlDecodeToBytes(value));
-}
-
-function timingSafeEqualString(left, right) {
-  const leftBytes = new TextEncoder().encode(String(left || ""));
-  const rightBytes = new TextEncoder().encode(String(right || ""));
-  if (leftBytes.length !== rightBytes.length) return false;
-
-  let mismatch = 0;
-  for (let index = 0; index < leftBytes.length; index += 1) {
-    mismatch |= leftBytes[index] ^ rightBytes[index];
-  }
-  return mismatch === 0;
-}
-
-async function signAdminSessionPayload(payload, env) {
-  const secret = String(env.ADMIN_SESSION_SECRET || env.ADMIN_API_KEY || "").trim();
-  if (!secret || !globalThis.crypto?.subtle) return "";
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payload)
-  );
-  return base64UrlEncodeBytes(new Uint8Array(signature));
-}
-
-function getAdminSessionCookie(request) {
-  const cookieHeader = request.headers.get("Cookie") || "";
-  const cookies = cookieHeader.split(";").map((cookie) => cookie.trim());
-  const prefix = `${ADMIN_SESSION_COOKIE_NAME}=`;
-  const cookie = cookies.find((item) => item.startsWith(prefix));
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
-}
-
-function getAdminSessionCredential(request) {
-  return getAdminSessionCookie(request);
-}
-
-function getAdminSessionCookieSameSite(request, env) {
-  const configured = String(env.ADMIN_SESSION_COOKIE_SAMESITE || "").trim().toLowerCase();
-  if (configured === "none") return "None";
-  if (configured === "strict") return "Strict";
-  if (configured === "lax") return "Lax";
-
-  const origin = request.headers.get("Origin") || "";
-  const requestOrigin = new URL(request.url).origin;
-  return origin && origin !== requestOrigin ? "None" : "Lax";
-}
-
-function buildAdminSessionCookie(request, token, maxAgeSeconds, env) {
-  return [
-    `${ADMIN_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
-    `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
-    "Path=/admin",
-    "HttpOnly",
-    "Secure",
-    `SameSite=${getAdminSessionCookieSameSite(request, env)}`,
-  ].join("; ");
-}
-
-function buildExpiredAdminSessionCookie(request, env) {
-  return buildAdminSessionCookie(request, "", 0, env);
-}
-
-async function createAdminSessionToken(env, now = Date.now()) {
-  const ttlSeconds = getAdminSessionTtlSeconds(env);
-  const issuedAt = Math.floor(now / 1000);
-  const expiresAt = issuedAt + ttlSeconds;
-  const sessionId = globalThis.crypto?.randomUUID
-    ? crypto.randomUUID()
-    : `${issuedAt}-${Math.random().toString(36).slice(2)}`;
-  const payload = {
-    type: "admin_session",
-    iat: issuedAt,
-    exp: expiresAt,
-    jti: sessionId,
-    key: await fingerprintCredential(env.ADMIN_API_KEY || ""),
-  };
-  const encodedPayload = base64UrlEncodeString(JSON.stringify(payload));
-  const signature = await signAdminSessionPayload(encodedPayload, env);
-
-  return {
-    token: `${encodedPayload}.${signature}`,
-    expiresAt: new Date(expiresAt * 1000).toISOString(),
-    ttlSeconds,
-    fingerprint: await fingerprintCredential(`session:${sessionId}`),
-  };
-}
-
-async function verifyAdminSessionToken(token, env, now = Date.now()) {
-  const [encodedPayload, signature, extra] = String(token || "").split(".");
-  const fingerprint = await fingerprintCredential(token);
-  if (!encodedPayload || !signature || extra) {
-    return { allowed: false, fingerprint };
-  }
-
-  const expectedSignature = await signAdminSessionPayload(encodedPayload, env);
-  if (!expectedSignature || !timingSafeEqualString(signature, expectedSignature)) {
-    return { allowed: false, fingerprint };
-  }
-
-  let payload;
-  try {
-    payload = JSON.parse(base64UrlDecodeToString(encodedPayload));
-  } catch (error) {
-    return { allowed: false, fingerprint };
-  }
-
-  const nowSeconds = Math.floor(now / 1000);
-  const expectedKeyFingerprint = await fingerprintCredential(env.ADMIN_API_KEY || "");
-  const sessionFingerprint = await fingerprintCredential(`session:${payload.jti || token}`);
-  if (
-    payload.type !== "admin_session" ||
-    !payload.exp ||
-    payload.exp <= nowSeconds ||
-    payload.key !== expectedKeyFingerprint ||
-    isAdminKeyExpired(env, now)
-  ) {
-    return { allowed: false, fingerprint: sessionFingerprint };
-  }
-
-  return {
-    allowed: true,
-    fingerprint: sessionFingerprint,
-  };
-}
-
-function getAdminCredential(request) {
-  const authorization = request.headers.get("Authorization") || "";
-  const bearerToken = authorization.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length).trim()
-    : "";
-  const headerToken = request.headers.get("X-Admin-Key") || "";
-
-  return bearerToken || headerToken;
-}
-
-async function fingerprintCredential(value) {
-  const credential = String(value || "");
-  if (!credential || !globalThis.crypto?.subtle) return "";
-
-  const data = new TextEncoder().encode(credential);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest))
-    .slice(0, 8)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function getAdminKeyAccess(credential, env, now = Date.now()) {
-  const expectedKey = String(env.ADMIN_API_KEY || "").trim();
-  const normalizedCredential = String(credential || "").trim();
-  const fingerprint = await fingerprintCredential(normalizedCredential);
-  if (!expectedKey) return { allowed: false, fingerprint, reason: "missing_admin_key" };
-  if (isAdminKeyExpired(env, now)) return { allowed: false, fingerprint, reason: "admin_key_expired" };
-
-  return {
-    allowed: timingSafeEqualString(normalizedCredential, expectedKey),
-    fingerprint,
-    reason: timingSafeEqualString(normalizedCredential, expectedKey) ? "" : "invalid_admin_key",
-  };
-}
-
-async function getAdminAccess(request, env) {
-  const sessionToken = getAdminSessionCredential(request);
-  if (sessionToken) {
-    const sessionAccess = await verifyAdminSessionToken(sessionToken, env);
-    if (sessionAccess.allowed) return sessionAccess;
-  }
-
-  return getAdminKeyAccess(getAdminCredential(request), env);
-}
-
-function getClientIp(request) {
-  return String(
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For") ||
-    ""
-  )
-    .split(",")[0]
-    .trim()
-    .slice(0, 128);
-}
 
 function getUserAgent(request) {
   return String(request.headers.get("User-Agent") || "").slice(0, 500);
@@ -563,7 +711,7 @@ async function recordAdminAuditLog(env, request, url, event) {
       )
       .run();
   } catch (error) {
-    console.error("Unable to record admin audit log:", error);
+    console.error("Unable to record admin audit log: " + sanitizeErrorForLog(error));
   }
 }
 
@@ -616,6 +764,7 @@ async function getApprovedComments(env, path) {
   }
   await ensureCommentHiddenColumn(env);
 
+  const maxComments = parsePositiveInteger(env.MAX_COMMENTS_PER_POST, 100, 500);
   const { results } = await env.DB.prepare(`
     SELECT id, parent_id, author_name, content, created_at, likes_count, hidden_at
     FROM post_comments
@@ -624,7 +773,7 @@ async function getApprovedComments(env, path) {
     ORDER BY created_at ASC, id ASC
     LIMIT ?2
   `)
-    .bind(path, MAX_COMMENTS_PER_POST)
+    .bind(path, maxComments)
     .all();
 
   const comments = (results || []).map((comment) => ({
@@ -704,7 +853,7 @@ async function createComment(env, data) {
       data.pageUrl,
       data.pageTitle,
       data.nickname,
-      data.email || null,
+      data.email ? (await encryptEmail(env, data.email)) : null,
       data.website || null,
       data.content,
       status
@@ -737,6 +886,17 @@ async function handleLikes(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const ip = getClientIp(request);
+    const rateLimit = await checkPublicRateLimit(env, ip, "likes", PUBLIC_RATE_LIMIT_LIKES, PUBLIC_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        request,
+        env,
+        { error: "Rate limit exceeded. Try again later." },
+        429,
+        { "Retry-After": String(rateLimit.retryAfterSeconds) }
+      );
+    }
     const count = await incrementLikeCount(env, path);
     return jsonResponse(request, env, { path, count });
   }
@@ -817,6 +977,17 @@ async function handleCommentLikes(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const ip = getClientIp(request);
+    const rateLimit = await checkPublicRateLimit(env, ip, "comment_likes", PUBLIC_RATE_LIMIT_COMMENT_LIKES, PUBLIC_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        request,
+        env,
+        { error: "Rate limit exceeded. Try again later." },
+        429,
+        { "Retry-After": String(rateLimit.retryAfterSeconds) }
+      );
+    }
     const likes = await incrementCommentLikeCount(env, commentId);
     if (likes === null) {
       return jsonResponse(request, env, { error: "Comment not found." }, 404);
@@ -845,6 +1016,18 @@ async function handleComments(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const ip = getClientIp(request);
+    const rateLimit = await checkPublicRateLimit(env, ip, "comments", PUBLIC_RATE_LIMIT_COMMENTS, PUBLIC_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        request,
+        env,
+        { error: "Rate limit exceeded. Try again later." },
+        429,
+        { "Retry-After": String(rateLimit.retryAfterSeconds) }
+      );
+    }
+
     let payload;
 
     try {
@@ -866,7 +1049,7 @@ async function handleComments(request, env, url) {
     }
 
     const path = normalizePath(payload.path);
-    const pageUrl = normalizeText(payload.pageUrl, 1000);
+    const pageUrl = normalizePageUrl(payload.pageUrl, 1000);
     const pageTitle = normalizeText(payload.pageTitle, 300);
     const nickname = normalizeText(payload.nickname, 80);
     const email = normalizeOptionalText(payload.email, 254);
@@ -914,12 +1097,16 @@ async function handleComments(request, env, url) {
         deniedKeyword ? 202 : 201
       );
     } catch (error) {
-      return jsonResponse(
-        request,
-        env,
-        { error: error instanceof Error ? error.message : "Unable to create comment." },
-        400
-      );
+      const message = error instanceof Error ? error.message : "";
+      if (
+        message === "The parent comment does not exist for this post." ||
+        message === "D1 binding DB is not configured."
+      ) {
+        return jsonResponse(request, env, { error: message }, 400);
+      }
+      const safeBody = buildSafeErrorResponse(error);
+      console.error(`Comment create error [${safeBody.correlationId}]: ${sanitizeErrorForLog(error)}`);
+      return jsonResponse(request, env, safeBody, 500);
     }
   }
 
@@ -1075,23 +1262,27 @@ async function listAdminComments(env, url) {
 
   const { results } = await statement.bind(...bindings, limit).all();
 
-  return (results || []).map((comment) => ({
-    id: comment.id,
-    path: comment.path,
-    parentId: comment.parent_id || null,
-    parentAuthorName: comment.parent_author_name || "",
-    parentContent: comment.parent_content || "",
-    pageUrl: comment.page_url,
-    pageTitle: comment.page_title,
-    authorName: comment.author_name,
-    authorEmail: comment.author_email || "",
-    content: comment.content,
-    likesCount: Number(comment.likes_count || 0),
-    status: comment.status,
-    hiddenAt: formatTimestamp(comment.hidden_at),
-    createdAt: formatTimestamp(comment.created_at),
-    updatedAt: formatTimestamp(comment.updated_at),
-  }));
+  const comments = [];
+  for (const comment of (results || [])) {
+    comments.push({
+      id: comment.id,
+      path: comment.path,
+      parentId: comment.parent_id || null,
+      parentAuthorName: comment.parent_author_name || "",
+      parentContent: comment.parent_content || "",
+      pageUrl: comment.page_url,
+      pageTitle: comment.page_title,
+      authorName: comment.author_name,
+      authorEmail: await decryptEmail(env, comment.author_email || ""),
+      content: comment.content,
+      likesCount: Number(comment.likes_count || 0),
+      status: comment.status,
+      hiddenAt: formatTimestamp(comment.hidden_at),
+      createdAt: formatTimestamp(comment.created_at),
+      updatedAt: formatTimestamp(comment.updated_at),
+    });
+  }
+  return comments;
 }
 
 async function updateCommentStatus(env, id, status) {
@@ -1582,6 +1773,11 @@ async function handleAdminSession(request, env, url) {
   }
 
   if (request.method === "POST") {
+    const csrf = checkCsrf(request, env);
+    if (!csrf.allowed) {
+      return jsonResponse(request, env, { error: "Cross-origin request blocked." }, 403);
+    }
+
     const payload = await readJsonBody(request);
     if (!payload) {
       const response = jsonResponse(request, env, { error: "Request body must be valid JSON." }, 400);
@@ -1594,8 +1790,49 @@ async function handleAdminSession(request, env, url) {
     }
 
     const credential = String(payload.adminKey || payload.key || "").trim();
+    const credentialFingerprint = await fingerprintCredential(credential);
+    const ipBucketKey = `ip:${getClientIp(request)}`;
+    const credBucketKey = `cred:${credentialFingerprint}`;
+
+    // Check order is load-bearing: Origin -> rate limit -> credential
+    // validation. If credentials were checked first, login-CSRF from a victim's
+    // browser could burn the victim's failed-attempt counter and lock them out.
+    const retryAfterSeconds = await getLoginRetryAfterSeconds(env, ipBucketKey, credBucketKey);
+    if (retryAfterSeconds > 0) {
+      const response = jsonResponse(
+        request,
+        env,
+        { error: "Too many failed login attempts. Try again later." },
+        429,
+        { "Retry-After": String(retryAfterSeconds) }
+      );
+      await recordAdminAuditLog(env, request, url, {
+        action: "admin.session.rate_limited",
+        status: response.status,
+        fingerprint: credentialFingerprint,
+        details: { retryAfterSeconds },
+      });
+      return response;
+    }
+
     const access = await getAdminKeyAccess(credential, env);
     if (!access.allowed) {
+      // Count the failure on both the in-memory fast pre-filter and the durable
+      // D1 boundary, for the IP bucket and the credential-fingerprint bucket.
+      const memoryResult = adminLoginLimiter.recordFailure(ipBucketKey);
+      await recordAuthAttemptFailure(
+        env,
+        ipBucketKey,
+        await getAuthAttemptsWindowStart(env, ipBucketKey),
+        memoryResult.lockoutUntil || null
+      );
+      await recordAuthAttemptFailure(
+        env,
+        credBucketKey,
+        await getAuthAttemptsWindowStart(env, credBucketKey),
+        memoryResult.lockoutUntil || null
+      );
+
       const response = jsonResponse(request, env, {
         error: "Admin access is required.",
         reason: access.reason || "invalid_admin_key",
@@ -1609,7 +1846,16 @@ async function handleAdminSession(request, env, url) {
       return response;
     }
 
+    // Successful login resets the counters for this client.
+    adminLoginLimiter.reset(ipBucketKey);
+    await resetAuthAttempts(env, ipBucketKey);
+    await resetAuthAttempts(env, credBucketKey);
+
     const session = await createAdminSessionToken(env);
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const expiresAt = issuedAt + session.ttlSeconds;
+    await persistAdminSession(env, session.jti, issuedAt, expiresAt);
+    await pruneExpiredAdminSessions(env);
     const body = {
       authenticated: true,
       expiresAt: session.expiresAt,
@@ -1634,7 +1880,15 @@ async function handleAdminSession(request, env, url) {
   }
 
   if (request.method === "DELETE") {
-    const access = await getAdminAccess(request, env);
+    const csrf = checkCsrf(request, env);
+    if (!csrf.allowed) {
+      return jsonResponse(request, env, { error: "Cross-origin request blocked." }, 403);
+    }
+
+    const access = await validateAdminAccess(request, env);
+    if (access.allowed && access.jti) {
+      await revokeAdminSession(env, access.jti);
+    }
     const response = jsonResponse(
       request,
       env,
@@ -1653,7 +1907,7 @@ async function handleAdminSession(request, env, url) {
   }
 
   if (request.method === "GET") {
-    const access = await getAdminAccess(request, env);
+    const access = await validateAdminAccess(request, env);
     const response = jsonResponse(
       request,
       env,
@@ -1672,7 +1926,14 @@ async function handleAdminSession(request, env, url) {
 }
 
 async function handleAdmin(request, env, url) {
-  const access = await getAdminAccess(request, env);
+  if (isAdminMutation(request, url)) {
+    const csrf = checkCsrf(request, env);
+    if (!csrf.allowed) {
+      return jsonResponse(request, env, { error: "Cross-origin request blocked." }, 403);
+    }
+  }
+
+  const access = await validateAdminAccess(request, env);
   if (!access.allowed) {
     const response = jsonResponse(request, env, { error: "Admin access is required." }, 401);
     await recordAdminAuditLog(env, request, url, {
@@ -1873,6 +2134,14 @@ async function handleAdmin(request, env, url) {
 /**
  * Main worker handler
  */
+export {
+  normalizePageUrl,
+  sanitizeErrorForLog,
+  getEmailEncryptionKey,
+  encryptEmail,
+  decryptEmail,
+};
+
 export default {
   async fetch(request, env) {
     try {
@@ -1887,38 +2156,49 @@ export default {
       const url = new URL(request.url);
 
       if (url.pathname === "/admin/session") {
-        return handleAdminSession(request, env, url);
+        return await handleAdminSession(request, env, url);
       }
 
       if (url.pathname.startsWith("/admin/")) {
-        return handleAdmin(request, env, url);
+        return await handleAdmin(request, env, url);
       }
 
       // Route to appropriate handler
       if (url.pathname === "/likes") {
-        return handleLikes(request, env, url);
+        return await handleLikes(request, env, url);
       }
 
       if (url.pathname === "/comments/like") {
-        return handleCommentLikes(request, env, url);
+        return await handleCommentLikes(request, env, url);
       }
 
       if (url.pathname === "/comments") {
-        return handleComments(request, env, url);
+        return await handleComments(request, env, url);
       }
 
       return jsonResponse(request, env, { error: "Not found." }, 404);
     } catch (error) {
-      console.error("Worker error:", error);
-      return jsonResponse(
-        request,
-        env,
-        {
-          error: "Engagement service failed.",
-          message: error instanceof Error ? error.message : "Unknown error.",
-        },
-        500
-      );
+      const safeBody = buildSafeErrorResponse(error);
+      console.error(`Worker error [${safeBody.correlationId}]: ${sanitizeErrorForLog(error)}`);
+      const response = jsonResponse(request, env, safeBody, 500);
+
+      // A throw inside handleAdmin currently skips recordAdminAuditLog, so the
+      // admin dispatch is wrapped here so 500s still hit the audit trail.
+      let url;
+      try {
+        url = new URL(request.url);
+      } catch (urlError) {
+        url = null;
+      }
+      if (url && (url.pathname === "/admin/session" || url.pathname.startsWith("/admin/"))) {
+        await recordAdminAuditLog(env, request, url, {
+          action: "admin.error",
+          status: response.status,
+          details: { correlationId: safeBody.correlationId },
+        });
+      }
+
+      return response;
     }
   },
 };

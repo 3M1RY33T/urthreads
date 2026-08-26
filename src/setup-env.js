@@ -49,6 +49,14 @@ function sanitizeOriginList(value) {
     .join(",");
 }
 
+async function askOriginList(prompter, question, defaultValue = "", output = process.stdout) {
+  for (;;) {
+    const value = await prompter.ask(question, defaultValue);
+    if (!String(value || "").includes("*")) return value;
+    output.write("Allowed origins must be exact http or https origins, not '*'. Please re-enter without wildcards.\n");
+  }
+}
+
 function normalizeWorkerName(value) {
   return String(value || "")
     .trim()
@@ -279,7 +287,8 @@ function buildEnvContent(config) {
     envLine("WORKER_URL", workerUrl),
     "",
     "# CORS",
-    "# Use exact browser origins. Dashboard cookie sessions do not work with \"*\".",
+    "# Use exact browser origins. The setup prompt rejects \"*\" because dashboard",
+    "# cookie sessions require a specific origin.",
     envLine("ALLOWED_ORIGINS", allowedOrigins),
     envLine("ALLOWED_ORIGINS_STAGING", allowedOriginsStaging),
     envLine("ALLOWED_ORIGINS_PROD", allowedOriginsProd),
@@ -511,19 +520,25 @@ async function collectConfig(prompter, output = process.stdout, options = {}) {
 
   output.write("\nCORS origins\n");
   output.write("Use comma-separated exact browser origins. Include your website and dashboard origins.\n");
-  output.write("Avoid \"*\" because secure dashboard cookie sessions require a specific origin.\n");
+  output.write("\"*\" is rejected here because secure dashboard cookie sessions require a specific origin.\n");
   output.write("Example: https://example.com,https://www.example.com,http://localhost:8000\n");
-  const allowedOrigins = await prompter.ask(
+  const allowedOrigins = await askOriginList(
+    prompter,
     "Allowed origins",
-    DEFAULTS.allowedOrigins
+    DEFAULTS.allowedOrigins,
+    output
   );
-  const allowedOriginsStaging = await prompter.ask(
+  const allowedOriginsStaging = await askOriginList(
+    prompter,
     "Staging allowed origins",
-    DEFAULTS.allowedOriginsStaging
+    DEFAULTS.allowedOriginsStaging,
+    output
   );
-  const allowedOriginsProd = await prompter.ask(
+  const allowedOriginsProd = await askOriginList(
+    prompter,
     "Production allowed origins",
-    DEFAULTS.allowedOriginsProd
+    DEFAULTS.allowedOriginsProd,
+    output
   );
 
   output.write("\nOptional settings\n");
@@ -672,6 +687,7 @@ if (require.main === module) {
 
 module.exports = {
   DEFAULTS,
+  askOriginList,
   buildEndpointUrl,
   buildEnvContent,
   buildDefaultWorkerName,

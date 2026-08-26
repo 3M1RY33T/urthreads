@@ -1,6 +1,6 @@
 {
   "name": "urthreads",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "A Cloudflare Workers and D1 engagement system for static-site likes and comments.",
   "license": "GPL-3.0-only",
   "logo": "assets/img/urthreads.png",
@@ -37,11 +37,16 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=16"
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "wrangler": "4.125.0"
   },
   "scripts": {
     "setup:env": "node src/urthreads.js setup-env",
-    "check": "node --check src/worker.js && node --check src/urthreads.js && node --check src/setup-env.js && node --check src/wrangler-config.js && node --check src/backout.js && node --check src/help-format.js && node --check src/example-config.js && node --check src/dashboard-config.js && node --check client/likes.js && node --check client/comments.js && node --check client/example-session.js && node --check examples/urthreads-worker-config.js && node --check web/dashboard.js",
+    "setup:dev": "node src/setup-dev.js",
+    "dev": "wrangler dev",
+    "check": "node --check src/worker.js && node --check src/urthreads.js && node --check src/setup-env.js && node --check src/setup-dev.js && node --check src/wrangler-config.js && node --check src/backout.js && node --check src/help-format.js && node --check src/example-config.js && node --check src/dashboard-config.js && node --check client/likes.js && node --check client/comments.js && node --check client/example-session.js && node --check examples/urthreads-worker-config.js && node --check web/dashboard.js && node --check src/worker-security.mjs",
     "prepublishOnly": "npm test && npm run check",
     "test": "node --test"
   }
