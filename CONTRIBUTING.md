@@ -14,7 +14,7 @@ This project is a self-hosted Cloudflare Worker, D1 schema, browser client, CLI,
 
 ## Development Setup
 
-Clone the repository and install dependencies:
+Requires Node 20+ (see `engines` in `package.json`). Clone the repository and install dependencies:
 
 ```bash
 npm install

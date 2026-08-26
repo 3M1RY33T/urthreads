@@ -190,6 +190,7 @@ If the chosen static output path does not exist, the command asks before creatin
 ```env
 ADMIN_API_KEY=replace-with-a-long-random-admin-key
 ADMIN_API_KEY_EXPIRES_AT=
+ADMIN_SESSION_SECRET=
 ADMIN_SESSION_TTL_SECONDS=3600
 ```
 
@@ -202,6 +203,7 @@ urthreads admin-key --expires 30d
 
 The command writes the key to `.env` and copies the raw key to your clipboard when possible. It does not print the raw key.
 It can also prompt to store the key as a Worker secret. If the key expires, it can update `ADMIN_API_KEY_EXPIRES_AT` in `wrangler.toml` and deploy the Worker so the expiration is active.
+The interactive expiry prompt now defaults to 90 days; pass `--expires never` for a key that never expires.
 
 If you skip that prompt, update and deploy manually with the timestamp from the CLI output:
 
@@ -225,6 +227,14 @@ urthreads admin-session --ttl 30m --toml ./wrangler.toml
 ```
 
 `ADMIN_SESSION_TTL_SECONDS` is clamped between 900 and 3600 seconds by the Worker. The command updates `.env`, updates `wrangler.toml` when available, and offers to deploy the Worker so the new lifetime takes effect.
+
+`ADMIN_SESSION_SECRET` is an optional HMAC secret (at least 32 bytes) used to sign admin session tokens. When unset, the Worker signs with `ADMIN_API_KEY`. Set a distinct value so session signing does not reuse the admin key:
+
+```bash
+wrangler secret put ADMIN_SESSION_SECRET
+```
+
+Verification still binds a token to the current `ADMIN_API_KEY` fingerprint and re-checks `ADMIN_API_KEY_EXPIRES_AT`, so rotating or expiring the admin key invalidates existing sessions either way.
 
 ### Email Encryption At Rest
 

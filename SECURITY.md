@@ -54,10 +54,11 @@ Out of scope:
 When deploying `urthreads`:
 
 - Use exact `ALLOWED_ORIGINS`; `*` is refused by the CLI and the Worker never honors wildcard CORS on `/admin/*`.
-- Store `ADMIN_API_KEY` as a Worker secret.
+- Store `ADMIN_API_KEY` as a Worker secret; optionally set `ADMIN_SESSION_SECRET` (at least 32 bytes) so session tokens are signed independently of the admin key (the Worker falls back to `ADMIN_API_KEY` when it is unset).
 - Use HTTPS for deployed dashboard and client origins; the dashboard rejects plain-http worker origins except `localhost`, `127.0.0.1`, and `[::1]` development.
 - Rotate admin keys after suspected exposure and prefer a finite key expiry (`urthreads admin-key --expires 30d`).
 - Admin mutations are CSRF-protected by an Origin check, and `POST /admin/session` is rate-limited to 5 failed attempts per 15 minutes per client IP (`CF-Connecting-IP`); audit logs record `CF-Connecting-IP` and never trust `X-Forwarded-For`.
+- Logout revokes the session server-side in D1 (`admin_sessions`), so a logged-out session cookie cannot be replayed.
 - Keep Cloudflare account, API token, and D1 permissions scoped to what the deployment needs.
 
 ## Cloudflare Rate Limiting Rules (Recommended)

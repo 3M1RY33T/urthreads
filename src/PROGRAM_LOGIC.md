@@ -89,14 +89,18 @@ Flow:
 1. The dashboard sends the admin key to `POST /admin/session`.
 2. The Worker validates the key using timing-safe comparison.
 3. The Worker creates a signed session token.
-4. The token is sent only as an `HttpOnly`, `Secure`, `__Host-` prefixed cookie scoped to `Path=/`. The `__Host-` prefix requires `Secure` and `Path=/`, and the dashboard never needs to read the cookie name.
+4. The token is sent only as an `HttpOnly`, `Secure`, `__Host-` prefixed cookie scoped to `Path=/`. The `__Host-` prefix requires `Secure` and `Path=/`, and the dashboard never needs to read the cookie name. Every issued session is also recorded in the D1 `admin_sessions` table so it can be revoked server-side.
 5. The dashboard sends later admin requests with `credentials: include`.
 
 The Worker sets `SameSite` automatically: `Lax` for same-origin dashboard use and `None` for cross-origin dashboard requests. Automatic `SameSite=None` is safe because every admin mutation is protected by an unconditional CSRF origin check: a request whose `Origin` header is present but is neither the Worker's own origin nor an exact entry in `ALLOWED_ORIGINS` is rejected with `403` before credentials are validated and before rate-limit counters are touched. A missing `Origin` is allowed so curl and CLI clients keep working. Set `ADMIN_SESSION_COOKIE_SAMESITE` to `Lax`, `Strict`, or `None` to override the automatic choice. Cross-origin cookie sessions require exact CORS origins; `ALLOWED_ORIGINS=*` is refused by the CLI and never honored on `/admin/*`.
 
+For local HTTP development (`localhost`, `127.0.0.1`, or `[::1]` over plain `http://`), the Worker switches to the un-prefixed `urthreads_admin_session` cookie and omits `Secure`, because browsers drop `Secure` cookies over HTTP. `SameSite` is forced to `Lax` (or the configured `Strict`) over plain HTTP loopback, since browsers also reject `SameSite=None` without `Secure`. Deployed HTTPS sessions always get `__Host-urthreads_admin_session` with `Secure`. See [Dashboard — Local testing](../web/DASHBOARD.md) for the end-to-end local workflow.
+
 `ADMIN_SESSION_TTL_SECONDS` controls session lifetime and is clamped between 15 minutes and one hour.
 
 `POST /admin/session` is rate limited to 5 failed login attempts per 15 minutes per client IP. Failures are counted; a successful login resets the counter. On the limit the Worker responds `429` with a `Retry-After` header. Counters are backed by the `auth_attempts` D1 table with an in-memory fast pre-filter.
+
+Each session's `jti` is stored in the D1 `admin_sessions` table. `DELETE /admin/session` revokes the row server-side in addition to expiring the cookie, so a logged-out session cannot be replayed even if its cookie value leaks. Verification checks the table for `revoked` and row expiry, and expired rows are pruned automatically.
 
 ## Audit Logs
 
@@ -142,8 +146,10 @@ Tables:
 - `engagement_events`: append-only stats events.
 - `admin_audit_logs`: protected dashboard activity logs.
 - `auth_attempts`: failed admin login buckets for rate limiting (client IP, credential fingerprint, and global windows).
+- `public_rate_limits`: per-IP counters for public POST endpoints (`/likes`, `/comments/like`, `/comments`).
+- `admin_sessions`: issued session records for server-side revocation (one row per session `jti`).
 
-The Worker also contains compatibility helpers for older databases: idempotent runtime `CREATE TABLE IF NOT EXISTS` ensures `hidden_at`, the denied keyword table, and the `auth_attempts` rate-limit table exist even before the manual schema migration is applied, so the Worker never 500s on a missing table.
+The Worker also contains compatibility helpers for older databases: idempotent runtime `CREATE TABLE IF NOT EXISTS` ensures `hidden_at`, the denied keyword table, `auth_attempts`, `public_rate_limits`, and `admin_sessions` exist even before the manual schema migration is applied, so the Worker never 500s on a missing table.
 
 ## CLI Files
 

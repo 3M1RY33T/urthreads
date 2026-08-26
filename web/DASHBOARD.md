@@ -225,7 +225,7 @@ To run the Worker and dashboard locally without Cloudflare credentials:
 
 ```bash
 npm install
-npm run setup:dev    # writes .dev.vars (admin key, never-expiring admin key), initializes local D1
+npm run setup:dev    # writes .dev.vars (admin key, never-expiring), initializes local D1
 npm run dev          # wrangler dev on http://localhost:8787
 ```
 
