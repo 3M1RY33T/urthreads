@@ -2,7 +2,7 @@
   "name": "urthreads",
   "version": "1.2.0",
   "description": "A Cloudflare Workers and D1 engagement system for static-site likes and comments.",
-  "license": "GPL-3.0-only",
+  "license": "MIT",
   "logo": "assets/img/urthreads.png",
   "author": "Yigit Emir Yildiz",
   "repository": {

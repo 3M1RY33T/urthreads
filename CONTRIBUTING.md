@@ -94,4 +94,4 @@ Do not open public issues for suspected vulnerabilities. Follow [SECURITY.md](./
 
 ## License
 
-By contributing, you agree that your contribution will be licensed under the repository's GPL-3.0-only license.
+By contributing, you agree that your contribution will be licensed under the repository's MIT license.
