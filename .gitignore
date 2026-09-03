@@ -34,3 +34,5 @@ comments_batch_*.sql
 .DS_Store
 .idea/
 .vscode/
+# graphify build output, never committed
+graphify-out/
