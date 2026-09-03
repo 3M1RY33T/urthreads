@@ -1,6 +1,6 @@
 {
   "name": "urthreads",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "A Cloudflare Workers and D1 engagement system for static-site likes and comments.",
   "license": "MIT",
   "logo": "assets/img/urthreads.png",
